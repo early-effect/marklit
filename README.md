@@ -1,38 +1,114 @@
 # marklit
 
-Typechecked Scala documentation. You write Markdown with Scala code fences; marklit compiles and runs each block against your real project classpath, then renders a new Markdown file with the actual output spliced in. Code that's supposed to fail can be asserted to fail. Code that's supposed to crash can be asserted to crash.
+**Typechecked Scala documentation that actually runs your code — across multiple Scala versions, in the same file.**
 
-It's [mdoc](https://scalameta.org/mdoc/) territory — with a few different choices: **multiple modifiers per block**, **named scopes with inheritance**, **automatic classpath discovery via BSP**, and a **ZIO** runtime under the hood.
+Write Markdown with Scala code fences. marklit compiles each fence against your real project classpath, executes it, and renders a new Markdown file with the actual output spliced in. Code that's supposed to fail can be asserted to fail. Code that's supposed to crash can be asserted to crash. And — uniquely — a single document can mix Scala 3.3.7, 3.7.3, 3.8.2, and 2.13.16 blocks side by side, each compiled by its own real compiler.
 
-> Status: usable for Scala 3 projects. Scala 2.13 cross-build is on the roadmap, not implemented. See [Limitations](#limitations).
+If your docs claim something works, marklit makes the build break when it doesn't.
 
-## Quick example
+## What sets marklit apart
 
-Write `docs/example.md`:
+marklit lives in [mdoc](https://scalameta.org/mdoc/)'s neighborhood. Many ideas — `silent`, `invisible`, `compile-only`, `fail`, `crash`, `passthrough` — are deliberately compatible. Where it diverges:
+
+| Feature | mdoc | marklit |
+| --- | :---: | :---: |
+| Compile + execute Scala code in Markdown | ✓ | ✓ |
+| Assert compile errors / runtime crashes | ✓ | ✓ |
+| Auto-discover the project's classpath from the build tool | ✓ | ✓ |
+| **Mix multiple Scala versions in one document** | ✗ | **✓** |
+| **Per-block specific Scala version** (`scala=3.7.3`, `scala=2.13.16`) | ✗ | **✓** |
+| **Named scopes with inheritance** (`id=foo`, `extends=foo`) | ✗ | **✓** |
+| **Append to a named scope** (`extends=foo,append`) | ✗ | **✓** |
+| Cross-built dependencies on per-major classpaths | ✗ | **✓** |
+| **Built-in ZIO runtime** (`zio-app` modifier) | ✗ | **✓** |
+| Multiple modifiers per block (`silent,id=setup`) | partial | **✓** |
+| Scoped-by-default — blocks isolated unless you opt in | ✗ | **✓** |
+
+The multi-version story is the one that pays for the project. You can write a migration guide that shows the *same code* compiled on 2.13 and 3.x, side by side, with both outputs verified by real compilers.
+
+## A 60-second tour
 
 ````markdown
-```scala
-case class User(name: String, age: Int)
-val alice = User("Alice", 30)
-println(s"${alice.name} is ${alice.age}")
+# Greeter
+
+```scala marklit:id=base
+case class Greeting(name: String, lang: String)
+def greet(g: Greeting) = s"${g.lang}: hello, ${g.name}!"
+```
+
+```scala marklit:extends=base
+println(greet(Greeting("Alice", "en")))
+```
+
+```scala marklit:extends=base,append
+def shout(g: Greeting) = greet(g).toUpperCase
+```
+
+```scala marklit:extends=base
+// sees `greet` AND `shout` — the previous block appended to `base`
+println(shout(Greeting("Bob", "en")))
 ```
 
 ```scala marklit:fail
-val x: String = 42  // expected to fail compilation
+val x: String = 42  // expected to NOT compile
+```
+
+```scala marklit:crash
+sys.error("boom")  // expected to throw
 ```
 ````
 
-Run it (sbt example):
+Run it (sbt):
 
 ```sh
 sbt marklitGenerate
 ```
 
-You get back the same Markdown with the executed output rendered after each block, and the `fail` block's compiler diagnostic embedded as proof it really doesn't compile.
+You get back the same Markdown with executed output spliced in, the `fail` block's compiler diagnostic embedded, and the `crash` block's exception captured.
+
+## The killer feature: multi-version
+
+Drop a `scala=<version>` modifier on a block and marklit resolves *that exact* `scala3-compiler` (or `scala-compiler` for 2.13) via Coursier, loads it on its own isolated classloader, and compiles the block against it.
+
+````markdown
+```scala marklit:scala=3.3.7
+println(scala.util.Properties.versionNumberString)  // "3.3.7" actually
+```
+
+```scala marklit:scala=3.7.3
+println(scala.util.Properties.versionNumberString)  // "3.7.3" actually
+```
+
+```scala marklit:scala=2.13.16
+println(scala.util.Properties.versionNumberString)  // "2.13.16" actually
+```
+````
+
+The `marklit-cli` jar is built once and bundles only thin shims against the dotc (3.x) and nsc (2.13) compiler APIs. Every per-version classloader gets a fresh copy of the *user-requested* compiler and its matching standard library — so user code is always compiled and run by the version they asked for, never by the bundled shim's version.
+
+A worked example with five different versions in one file lives in [examples/base/src/main/markdown/multi-version.md](examples/base/src/main/markdown/multi-version.md).
+
+### Cross-built dependencies, the right way
+
+If your project cross-builds a sibling module (e.g. `core` published for both 2.13 and 3.x), the build plugin auto-detects this and forwards each major's classpath to marklit. A `scala=2.13.x` block reaches the 2.13 build of `core`; a default-major block reaches the 3.x build. No manual wiring.
+
+````markdown
+```scala
+// Default 3.x — uses core_3
+println(example.Greeter.hello("Scala 3"))
+```
+
+```scala marklit:scala=2.13.16
+// Cross-version — uses core_2.13
+println(example.Greeter.hello("Scala 2.13"))
+```
+````
+
+Both blocks reference `example.Greeter`. Both compile. Both produce real output from the real compiled jar.
 
 ## Modifiers
 
-Code fences with the info string `scala marklit:<modifiers>` are processed. Modifiers are comma-separated.
+Code fences with the info string `scala marklit:<modifiers>` are processed. Modifiers are comma-separated and freely combined.
 
 | Modifier | Effect |
 | --- | --- |
@@ -44,21 +120,24 @@ Code fences with the info string `scala marklit:<modifiers>` are processed. Modi
 | `warn` | Assert that compilation produces warnings. |
 | `crash` | Assert that execution throws. The exception is rendered. |
 | `passthrough` | Render the block as-is — no compilation. |
-| `zio-app` | Wrap the block as a ZIO program and run it via `Runtime.unsafe.fromLayer`. |
+| `zio-app` | Wrap the block as a ZIO program and run it via ZIO's `Runtime.unsafe`. |
 | `id=<name>` | Name this block's scope. |
 | `extends=<name>` | Create a child scope inheriting from `<name>`. |
-| `extends=<name>,append` | Append to `<name>` instead of branching. Lexical order matters. |
-| `scala=<version>` | Restrict the block to a Scala version (`scala=2`, `scala=3`). |
+| `extends=<name>,append` | Append to `<name>` instead of branching. Subsequent `extends=<name>` blocks see the appended code. |
+| `scala=<bare-major>` | Filter the block to a Scala major (`scala=2`, `scala=3`). Skipped at runtimes that don't match. |
+| `scala=<specific-version>` | Compile this block against an exact version (`scala=3.7.3`, `scala=2.13.16`). |
+| `shared` | Prepend this block's code to *every* per-version default scope. Useful for helpers. |
+| `shared-2` / `shared-3` | Like `shared`, but only contribute to one Scala major's default scope. |
 
-Combine freely: `silent,id=setup`, `fail,extends=errors`, etc. `id` and `append` are mutually exclusive; `append` requires `extends`.
+Examples: `silent,id=setup`, `fail,extends=errors`, `zio-app,scala=3.8.2`. `id` and `append` are mutually exclusive; `append` requires `extends`.
 
 See [examples/base/src/main/markdown/tutorial.md](examples/base/src/main/markdown/tutorial.md) for a worked example of every feature.
 
-## Scopes
+## Scopes — explicit by default
 
-By default each block gets a fresh anonymous scope — code blocks do **not** share state unless you tell them to. This inverts mdoc's default and matches `mdoc:reset` semantics out of the box.
+By default each block gets a fresh anonymous scope. Code blocks do **not** share state unless you tell them to. This inverts mdoc's default and is closer to mdoc's `:reset` semantics out of the box. The reasoning: most documentation snippets are *examples* that should stand alone; sharing state is the exception, not the rule.
 
-To share state across blocks, name a scope and extend it:
+To opt in:
 
 ````markdown
 ```scala marklit:id=base
@@ -75,7 +154,7 @@ def validate(u: User): Boolean = u.age > 0
 ```
 
 ```scala marklit:extends=base
-// sees User AND validate, because the previous block appended to base
+// sees User AND validate
 println(validate(User("Bob", -1)))
 ```
 ````
@@ -95,8 +174,13 @@ addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.1.0-SNAPSHOT")
 
 ```scala
 // build.sbt
-marklitSourceDirectory := baseDirectory.value / "src" / "main" / "markdown"
-marklitTargetDirectory := baseDirectory.value / "target" / "docs"
+lazy val docs = project
+  .dependsOn(core)  // your normal project dep
+  .settings(
+    scalaVersion := "3.8.2",
+    marklitSourceDirectory := baseDirectory.value / "src" / "main" / "markdown",
+    marklitTargetDirectory := baseDirectory.value / "target" / "docs"
+  )
 ```
 
 Tasks:
@@ -107,9 +191,16 @@ Tasks:
 | `marklitCompile` | Verify all blocks compile, but don't write output. |
 | `marklitClean` | Remove the target directory. |
 
-The plugin auto-passes your project's `fullClasspath` to marklit, so any dependency you've declared in `build.sbt` is available inside code fences. No separate dependency list to keep in sync.
+The plugin auto-passes your project's `fullClasspath` to marklit, so any dependency you've declared in `build.sbt` is available inside code fences. **For cross-built deps**, the plugin walks your `dependsOn` graph, finds any sibling project with a non-default-major entry in `crossScalaVersions`, and forwards each major's classpath as `--classpath-2` / `--classpath-3`. Make sure the cross-builds are compiled first (e.g. `+core/compile`); the example uses a `docs` command alias that does this:
 
-A worked example lives in [examples/sbt/](examples/sbt/).
+```scala
+addCommandAlias(
+  "docs",
+  "; core/clean; +core/compile; docs/clean; docs/marklitGenerate"
+)
+```
+
+A worked multi-version example lives in [examples/sbt/](examples/sbt/).
 
 ### Mill
 
@@ -119,12 +210,22 @@ A worked example lives in [examples/sbt/](examples/sbt/).
 
 import marklit.mill.MarklitModule
 
+val scala3 = "3.8.2"
+val scala2 = "2.13.16"
+
+object core extends Cross[CoreModule](Seq(scala2, scala3))
+trait CoreModule extends CrossSbtModule
+
 object docs extends ScalaModule with MarklitModule {
-  def scalaVersion = "3.8.2"
+  def scalaVersion = scala3
+  override def moduleDeps = Seq(core(scala3))
+  override def marklitCrossModuleDeps = core.crossModules
 }
 ```
 
-Tasks: `marklitGenerate`, `marklitCheck`. Worked example in [examples/mill/](examples/mill/).
+Tasks: `docs.marklitGenerate`, `docs.marklitCheck`. Set `marklitCrossModuleDeps` to your cross-built deps' `.crossModules` and the plugin handles per-major classpath bucketing automatically.
+
+A worked example lives in [examples/mill/](examples/mill/).
 
 ### CLI
 
@@ -134,70 +235,73 @@ The CLI is bundled inside both build plugins, but you can also run it standalone
 marklit docs/ --out target/docs/
 ```
 
-Flags:
+Common flags:
 
 | Flag | Description |
 | --- | --- |
 | `--out`, `-o` | Output directory. |
 | `--check`, `-c` | Verify without writing output. |
 | `--watch`, `-w` | Re-process on file changes. |
-| `--classpath`, `-cp` | Extra classpath entries (colon-separated). |
+| `--scala-version` | Default Scala version for blocks without a `scala=` modifier. |
+| `--classpath`, `-cp` | Default classpath (colon/semicolon-separated). |
+| `--classpath-2` | Classpath used when compiling Scala 2.x blocks. |
+| `--classpath-3` | Classpath used when compiling Scala 3.x blocks. |
 | `--deps`, `-d` | Coursier-style deps, e.g. `dev.zio::zio:2.1.26`. |
 | `--repos`, `-r` | Extra Maven repositories. |
-| `--show-version` | Render the Scala version on each block (default `true`). |
+| `--no-show-version` | Suppress the `// Scala x.y.z` annotation on output blocks. |
 | `--verbose`, `-v` | Verbose logging. |
 
 You can also declare dependencies inline in a Markdown file using [scala-cli](https://scala-cli.virtuslab.org/) `using` directives:
 
 ```markdown
+//> using scala 3.8.2
 //> using dep dev.zio::zio:2.1.26
-//> using scala-options -feature -deprecation
+//> using options -feature -deprecation
 ```
 
-These are merged with anything supplied on the command line.
+Precedence (highest to lowest): per-block `scala=<specific>` → in-source `//> using scala` → CLI `--scala-version` → bundled shim's compile-time version.
 
-## How compilation works
+## How it actually works
 
-1. **Parse** the Markdown with fastparse — extract code fences and their modifier strings.
-2. **Build the scope graph** from `id` / `extends` / `append` declarations, validate it, and group blocks by scope.
-3. **Resolve the classpath**: if a `.bsp/` directory is present, marklit speaks BSP to your build server (sbt, Bloop, Mill) to pull build targets, classpath, and scalac options. Otherwise it falls back to a direct dotty driver invocation, with classpath supplied by the calling plugin or CLI.
-4. **Compile** each block by wrapping it in `object MarklitWrapper { def run(): Unit = ... }`, inheriting the accumulated scope code, and feeding it to `dotty.tools.dotc`.
-5. **Execute** under a child-first classloader to keep ZIO state isolated, capturing stdout via a marker-based redirect so output from prior blocks doesn't leak.
-6. **Validate** outcomes against the modifiers (`fail` must produce a diagnostic; `crash` must throw; `warn` must warn).
+1. **Parse** the Markdown with fastparse — extract code fences and modifier strings.
+2. **Build the scope graph** from `id` / `extends` / `append`, validate it (no cycles, no cross-major inheritance), group blocks by scope.
+3. **For each requested Scala version**: ask the `CompilerFactory` for a compiler. If it's not the default, the factory Coursier-resolves `scala3-compiler_3:<version>` (or `scala-compiler:<version>` for 2.13), builds a `URLClassLoader` from those JARs, and reflectively invokes the version-stable shim that lives on that loader. Compilers are cached by version.
+4. **Compile** each block by wrapping it in a synthetic top-level object and feeding the prior-scope code + block code to dotc/nsc through the shim.
+5. **Execute** under a child-first classloader, capturing stdout via a marker-based redirect so output from prior blocks doesn't leak.
+6. **Validate** outcomes against the modifiers.
 7. **Render** the original Markdown back out, splicing in code, output, diagnostics, and exceptions per modifier rules.
+
+The per-version classloader pattern is the same one Bloop and Metals use to host arbitrary Scala compilers without polluting their own runtime classpath.
 
 ## Modules
 
 | Module | What it is |
 | --- | --- |
 | [core/](core/) | Parser, scope manager, document processor, renderer. Pure types, no compiler dependency. Published. |
-| [compiler/](compiler/) | The Scala 3 compiler driver, the BSP client, classloader/output isolation. Published. |
-| [cli/](cli/) | `zio-cli` front-end. Distributed as a fat jar bundled inside the build plugins. Not published. |
+| [compiler-api/](compiler-api/) | Java-only interfaces between marklit and the per-version compiler shims. |
+| [compiler-shim/](compiler-shim/) | Thin shim against `dotty.tools.dotc.*`. Pinned to the oldest 3.x we support; the API surface is stable across 3.x. |
+| [compiler-shim-2/](compiler-shim-2/) | Thin shim against `scala.tools.nsc.*` for 2.13. |
+| [compiler/](compiler/) | Orchestration: Coursier-based `CompilerFactory`, classloader management, ZIO layers. Does not directly depend on `scala3-compiler` or `scala-compiler`. |
+| [cli/](cli/) | `zio-cli` front-end. Distributed as a fat jar bundled inside the build plugins. |
 | [sbt-plugin/](sbt-plugin/) | `sbt-marklit` AutoPlugin. Published. |
-| [mill-plugin/](mill-plugin/) | `mill-marklit` module trait. Built with Mill, not sbt. |
+| [mill-plugin/](mill-plugin/) | `mill-marklit` module trait. Built with Mill. Published. |
 
 ## Limitations
 
-- **Scala 3 only.** The `scala=` modifier and the `scala-2` filter are wired through, but the actual Scala 2.13 compiler backend is not implemented. A `scala=2` block currently won't compile. Cross-build is planned (see [docs/plan.md](docs/plan.md)).
-- **JVM only.** Scala.js and Scala Native backends are aspirational.
+- **JVM only.** Scala.js and Scala Native backends are not supported.
 - **Markdown output only.** HTML / Docusaurus rendering is not built.
-- **Watch mode** is wired up at the CLI flag level but not battle-tested.
+- **Watch mode** is wired up at the CLI flag level but is not battle-tested.
 - **Variable capture** — only stdout is rendered; expression result values are not yet picked up.
+- **Scala 2.12 and earlier are not supported.** Cross-version blocks are 2.13.x and 3.x only.
 
 ## Building from source
 
 ```sh
 sbt publishAll          # build CLI fat jar + publish sbt plugin locally
+mill plugin.publishLocal # publish mill plugin locally
+sbt test                # core test suite (101 tests)
 ```
-
-Run the test suite:
-
-```sh
-sbt test
-```
-
-The compiler tests include a BSP integration suite that spins up an sbt build server in a testcontainer.
 
 ## Inspiration
 
-marklit owes its shape to mdoc, and reuses mdoc's modifier vocabulary where it makes sense. The differences (multiple modifiers per block, scope inheritance with append, BSP-based classpath discovery, ZIO runtime, scoped-by-default semantics) are the parts worth comparing.
+marklit owes its shape to [mdoc](https://scalameta.org/mdoc/) and reuses mdoc's modifier vocabulary where it makes sense. The differences — multiple modifiers per block, scope inheritance with append, scoped-by-default semantics, real per-block multi-version compilation, ZIO runtime, cross-built dependency awareness — are the parts worth comparing.
