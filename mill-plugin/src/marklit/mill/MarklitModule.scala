@@ -60,6 +60,64 @@ trait MarklitModule extends ScalaModule {
   }
 
   /**
+   * Cross-built sibling modules whose classes should be made available to
+   * cross-version code blocks. Typical usage:
+   *
+   * {{{
+   * object core extends Cross[CoreModule](Seq(scala2, scala3))
+   * trait CoreModule extends CrossScalaModule
+   *
+   * object docs extends ScalaModule with MarklitModule {
+   *   def scalaVersion = scala3
+   *   def moduleDeps = Seq(core(scala3))
+   *   override def marklitCrossModuleDeps = core.crossModules
+   * }
+   * }}}
+   *
+   * Each entry's compile classpath is bucketed by its `crossScalaVersion`
+   * major and forwarded as `--classpath-2` / `--classpath-3` to the CLI.
+   * The bucket matching the docs module's own scalaVersion is skipped
+   * (those classes are already in `marklitClasspath`).
+   */
+  def marklitCrossModuleDeps: Seq[CrossModuleBase] = Seq.empty
+
+  /**
+   * Per-major classpaths used when a code block opts into a Scala major
+   * different from the docs module's own. By default, derived from
+   * `marklitCrossModuleDeps`. Override directly to wire arbitrary classpaths
+   * (e.g. published artifacts) to a major.
+   */
+  def marklitMajorClasspaths: T[Map[String, Seq[PathRef]]] = Task {
+    val docsMajor = scalaVersion().takeWhile(_ != '.')
+    // Task.traverse must see `marklitCrossModuleDeps` directly, not via a
+    // local val — Mill's macro inspects the syntactic argument.
+    // Use runClasspath so we get this dep's own compiled classes plus its
+    // transitive deps. compileClasspath excludes the module's own output
+    // (since "compile this module" doesn't need its own classes), which is
+    // exactly the wrong answer here — we want to *use* the dep's classes
+    // from a separate process.
+    val perDepCps: Seq[Seq[PathRef]] =
+      Task.traverse(marklitCrossModuleDeps)(_.runClasspath)()
+    val pairs: Seq[(String, Seq[PathRef])] =
+      marklitCrossModuleDeps.zip(perDepCps).map { case (dep, cp) =>
+        val major = dep.crossScalaVersion.takeWhile(_ != '.')
+        val filtered = cp.toSeq.filterNot { pr =>
+          val name = pr.path.last
+          name.contains("marklit-cli") ||
+          name.startsWith("scala-library") ||
+          name.startsWith("scala3-library")
+        }
+        major -> filtered
+      }
+    pairs
+      .filter(_._1 != docsMajor)
+      .groupBy(_._1)
+      .view
+      .mapValues(_.flatMap(_._2).distinct)
+      .toMap
+  }
+
+  /**
    * Path to the marklit CLI jar.
    * By default, extracts the bundled jar from plugin resources.
    */
@@ -92,6 +150,7 @@ trait MarklitModule extends ScalaModule {
     val targetDir = Task.dest
     val cliJar = marklitCliJar().path
     val cp = marklitClasspath().map(_.path.toString).mkString(java.io.File.pathSeparator)
+    val majorCps = marklitMajorClasspaths()
     val showVersion = marklitShowVersion()
     val verbose = marklitVerbose()
     val scalaVer = scalaVersion()
@@ -118,6 +177,12 @@ trait MarklitModule extends ScalaModule {
         if (cp.nonEmpty) {
           args += "--classpath"
           args += cp
+        }
+        majorCps.foreach { case (major, cps) =>
+          if (cps.nonEmpty) {
+            args += s"--classpath-$major"
+            args += cps.map(_.path.toString).mkString(java.io.File.pathSeparator)
+          }
         }
         if (!showVersion) {
           args += "--no-show-version"
@@ -149,6 +214,7 @@ trait MarklitModule extends ScalaModule {
     val sourceDir = marklitSourceDir().path
     val cliJar = marklitCliJar().path
     val cp = marklitClasspath().map(_.path.toString).mkString(java.io.File.pathSeparator)
+    val majorCps = marklitMajorClasspaths()
     val verbose = marklitVerbose()
     val scalaVer = scalaVersion()
 
@@ -171,6 +237,12 @@ trait MarklitModule extends ScalaModule {
         if (cp.nonEmpty) {
           args += "--classpath"
           args += cp
+        }
+        majorCps.foreach { case (major, cps) =>
+          if (cps.nonEmpty) {
+            args += s"--classpath-$major"
+            args += cps.map(_.path.toString).mkString(java.io.File.pathSeparator)
+          }
         }
         if (verbose) {
           args += "--verbose"

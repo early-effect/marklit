@@ -7,15 +7,35 @@ import mill._
 import mill.scalalib._
 import marklit.mill.MarklitModule
 
-object docs extends ScalaModule with MarklitModule {
-  def scalaVersion = "3.8.2"
+val scala3 = "3.8.2"
+val scala2 = "2.13.16"
 
-  // Override source directory to point to the shared example markdown
-  // moduleDir for "docs" object is examples/mill/docs, go up twice to examples/
+// Cross-built `core` module — same source tree as the sbt example
+// (examples/base/core/src). CrossSbtModule expects sbt layout (i.e.
+// `src/main/scala` plus per-version overlays like `src/main/scala-3`,
+// `src/main/scala-2.13`); we override `sources` to root that layout at
+// `../base/core` instead of the module's own directory.
+object core extends Cross[CoreModule](Seq(scala2, scala3))
+trait CoreModule extends CrossSbtModule {
+  private def sharedRoot: os.Path =
+    moduleDir / os.up / os.up / "base" / "core"
+  override def sources: T[Seq[PathRef]] = Task.Sources(
+    Seq(sharedRoot / "src" / "main" / "scala") ++
+      scalaVersionDirectoryNames.map(s => sharedRoot / "src" / "main" / s"scala-$s")*
+  )
+}
+
+// docs module: mixes in MarklitModule, depends on the 3.x build of core,
+// and exposes both core builds via marklitCrossModuleDeps so that
+// `marklit:scala=2.13.x` blocks can reach the 2.13 build.
+object docs extends ScalaModule with MarklitModule {
+  def scalaVersion = scala3
+  override def moduleDeps = Seq(core(scala3))
+  override def marklitCrossModuleDeps = core.crossModules
+
   override def marklitSourceDir = Task.Source(
     moduleDir / os.up / os.up / "base" / "src" / "main" / "markdown"
   )
 
-  // Enable verbose output for demo purposes
   override def marklitVerbose = true
 }
