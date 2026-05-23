@@ -28,6 +28,10 @@ lazy val docs = project
     marklitSourceDirectory := (ThisBuild / baseDirectory).value.getParentFile / "base" / "src" / "main" / "markdown",
     marklitTargetDirectory := baseDirectory.value / "target" / "docs",
     marklitVerbose := true
+    // marklitMajorClasspaths is auto-discovered from this project's
+    // dependsOn graph — every project dep with a non-default-major entry in
+    // crossScalaVersions contributes its compiled classes directory. Just
+    // make sure the cross-builds are on disk first (e.g., `+core/compile`).
   )
 
 lazy val root = project

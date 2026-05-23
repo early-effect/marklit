@@ -29,13 +29,20 @@ object MarklitRunner {
   private def scalaVersionArg(scalaVersion: String): Seq[String] =
     Seq("--scala-version", scalaVersion)
 
-  private def classpathArg(classpath: Seq[File]): Seq[String] =
+  private def classpathArg(flag: String, classpath: Seq[File]): Seq[String] =
     if (classpath.nonEmpty)
       Seq(
-        "--classpath",
+        flag,
         classpath.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
       )
     else Seq.empty
+
+  private def majorClasspathArgs(
+      majorClasspaths: Map[String, Seq[File]]
+  ): Seq[String] =
+    majorClasspaths.toSeq.flatMap { case (major, cp) =>
+      classpathArg(s"--classpath-$major", cp)
+    }
 
   /** Run marklit in check mode.
     */
@@ -45,11 +52,13 @@ object MarklitRunner {
       classpath: Seq[File],
       scalaVersion: String,
       verbose: Boolean,
-      log: Logger
+      log: Logger,
+      majorClasspaths: Map[String, Seq[File]] = Map.empty
   ): Int = {
     val args = Seq("--check") ++
       scalaVersionArg(scalaVersion) ++
-      classpathArg(classpath) ++
+      classpathArg("--classpath", classpath) ++
+      majorClasspathArgs(majorClasspaths) ++
       (if (verbose) Seq("--verbose") else Seq.empty) ++
       sources.map(_.getAbsolutePath)
 
@@ -66,11 +75,13 @@ object MarklitRunner {
       scalaVersion: String,
       showVersion: Boolean,
       verbose: Boolean,
-      log: Logger
+      log: Logger,
+      majorClasspaths: Map[String, Seq[File]] = Map.empty
   ): Int = {
     val args = Seq("--out", outputDir.getAbsolutePath) ++
       scalaVersionArg(scalaVersion) ++
-      classpathArg(classpath) ++
+      classpathArg("--classpath", classpath) ++
+      majorClasspathArgs(majorClasspaths) ++
       (if (showVersion) Seq.empty else Seq("--no-show-version")) ++
       (if (verbose) Seq("--verbose") else Seq.empty) ++
       sources.map(_.getAbsolutePath)

@@ -15,6 +15,16 @@ object MarklitPlugin extends AutoPlugin {
       settingKey[Boolean]("Show Scala version in output blocks")
     val marklitVerbose = settingKey[Boolean]("Enable verbose output")
 
+    // Map from Scala major ("2", "3") to a per-major classpath. When a
+    // markdown block opts into a cross-version compile (e.g.
+    // `marklit:scala=2.13.16` from a project whose own scalaVersion is
+    // 3.x), the matching entry is forwarded as `--classpath-<major>`. This
+    // is the place to wire `(otherModule / Compile / fullClasspath)` from
+    // a sibling module that's cross-built for the other major.
+    val marklitMajorClasspaths = taskKey[Map[String, Seq[File]]](
+      "Per-major classpath overrides for cross-version blocks (key = Scala major like \"2\" or \"3\")"
+    )
+
     // Tasks
     val marklitCompile =
       taskKey[Unit]("Compile and verify markdown code blocks")
@@ -52,12 +62,71 @@ object MarklitPlugin extends AutoPlugin {
     jarFile
   }
 
+  /** Auto-discover per-major classpaths from this project's dependsOn graph.
+    *
+    * For each project the docs module depends on (transitively), we look at
+    * its `crossScalaVersions`. For every cross-version that's a *different*
+    * major from the docs module's own scalaVersion, we add that project's
+    * expected cross-build classes directory to the per-major classpath. The
+    * user only needs to keep their cross-built jars compiled (e.g., via a
+    * `+depModule/compile` step before `marklitGenerate`); the path discovery
+    * is mechanical from sbt's standard layout (`<projDir>/target/scala-<v>/
+    * classes`) and the project's own crossScalaVersions setting.
+    *
+    * The discovered map is then merged with any user override; user keys win
+    * so explicit `marklitMajorClasspaths += ...` still works.
+    */
+  private def autoMajorClasspaths: Def.Initialize[Task[Map[String, Seq[File]]]] =
+    Def.taskDyn {
+      val docsMajor = scalaVersion.value.takeWhile(_ != '.')
+      val deps = buildDependencies.value
+        .classpath(thisProjectRef.value)
+        .map(_.project)
+
+      // For each direct dep, read its crossScalaVersions and target dir,
+      // then materialize the cross-build's expected classes directory for
+      // any major != docsMajor.
+      val perDepFilter = ScopeFilter(inProjects(deps: _*))
+      Def.task {
+        val depCrosses = (Keys.crossScalaVersions ?? Seq.empty)
+          .all(perDepFilter)
+          .value
+        val depTargets = Keys.target.all(perDepFilter).value
+
+        val entries: Seq[(String, File)] = (depCrosses zip depTargets).flatMap {
+          case (versions, tgt) =>
+            versions
+              .filter(v => v.takeWhile(_ != '.') != docsMajor)
+              .flatMap { v =>
+                val major = v.takeWhile(_ != '.')
+                // sbt's cross-build target naming is annoyingly inconsistent:
+                // 2.13 → "scala-2.13" (binary version), 3.x → "scala-3.x.y"
+                // (full version). We try both and keep the one that exists.
+                val binV =
+                  if (major == "2") v.split('.').take(2).mkString(".")
+                  else v
+                val binDir = tgt / s"scala-$binV" / "classes"
+                val fullDir = tgt / s"scala-$v" / "classes"
+                Seq(binDir, fullDir).distinct
+                  .filter(_.exists())
+                  .headOption
+                  .map(major -> _)
+              }
+        }
+
+        entries
+          .groupBy(_._1)
+          .map { case (k, vs) => k -> vs.map(_._2).distinct }
+      }
+    }
+
   override lazy val projectSettings: Seq[Setting[_]] = Seq(
     // Default settings
     marklitSourceDirectory := (Compile / sourceDirectory).value / "markdown",
     marklitTargetDirectory := target.value / "marklit",
     marklitShowVersion := true,
     marklitVerbose := false,
+    marklitMajorClasspaths := autoMajorClasspaths.value,
 
     // Compile task - check markdown files compile successfully
     marklitCompile := {
@@ -67,6 +136,7 @@ object MarklitPlugin extends AutoPlugin {
       // Get the project's full classpath (includes dependencies)
       val cp = (Compile / fullClasspath).value.files
       val scalaVer = scalaVersion.value
+      val majorCps = marklitMajorClasspaths.value
 
       if (!sourceDir.exists()) {
         log.info(s"[marklit] No source directory: $sourceDir")
@@ -84,7 +154,8 @@ object MarklitPlugin extends AutoPlugin {
               cp,
               scalaVer,
               verbose,
-              log
+              log,
+              majorCps
             )
           if (exitCode != 0) {
             throw new MessageOnlyException(
@@ -105,6 +176,7 @@ object MarklitPlugin extends AutoPlugin {
       // Get the project's full classpath (includes dependencies)
       val cp = (Compile / fullClasspath).value.files
       val scalaVer = scalaVersion.value
+      val majorCps = marklitMajorClasspaths.value
 
       if (!sourceDir.exists()) {
         log.info(s"[marklit] No source directory: $sourceDir")
@@ -127,7 +199,8 @@ object MarklitPlugin extends AutoPlugin {
             scalaVer,
             showVersion,
             verbose,
-            log
+            log,
+            majorCps
           )
           if (exitCode != 0) {
             throw new MessageOnlyException(

@@ -70,11 +70,20 @@ object Marklit:
   /** Create a layer using a pre-built [[CompilerFactory]] and a default
     * version. Per-block specific-version requests are resolved against the
     * factory.
+    *
+    * @param majorClasspaths
+    *   per-major classpath overrides: when a cross-version block requests
+    *   Scala major `m`, the adapter looks up `majorClasspaths(m)` and
+    *   forwards that to the factory's `forVersion`. When no entry exists for
+    *   the requested major, the cross-version compiler runs with no extra
+    *   classpath (the safe default — see `CompilerServiceAdapter.compilerFor`
+    *   for why we don't reuse the default-major classpath).
     */
   def liveWithFactory(
       defaultScalaVersion: String,
       defaultExtraClasspath: Vector[String] = Vector.empty,
-      defaultScalacOptions: Vector[String] = Vector.empty
+      defaultScalacOptions: Vector[String] = Vector.empty,
+      majorClasspaths: Map[String, Vector[String]] = Map.empty
   ): ZLayer[CompilerFactory, Nothing, Marklit] =
     ZLayer.fromZIO {
       for
@@ -87,7 +96,8 @@ object Marklit:
         adapter = CompilerServiceAdapter.fromFactory(
           defaultC,
           factory,
-          defaultScalacOptions
+          defaultScalacOptions,
+          majorClasspaths
         )
       yield MarklitLive(adapter)
     }
@@ -113,7 +123,8 @@ object Marklit:
 private final class CompilerServiceAdapter(
     defaultCompiler: Compiler,
     factory: Option[CompilerFactory],
-    scalacOptions: Vector[String]
+    scalacOptions: Vector[String],
+    majorClasspaths: Map[String, Vector[String]]
 ) extends CompilerService:
 
   override def defaultScalaVersion: String = defaultCompiler.scalaVersion
@@ -141,15 +152,18 @@ private final class CompilerServiceAdapter(
         ZIO.succeed(defaultCompiler)
       case Some(v) =>
         factory match
-          // The user's extraClasspath was built against the default version's
-          // scala3-library/TASTy. Forwarding it to a different-version compiler
-          // would either let user code reference symbols the requested version
-          // doesn't have, or (worse) trigger TASTy-version errors when the
-          // older compiler tries to read newer TASTy. So we deliberately drop
-          // it for cross-version blocks. A future enhancement could let blocks
-          // opt back in when they know their deps are version-portable.
-          case Some(f) => f.forVersion(v, Vector.empty, scalacOptions)
-          case None    => ZIO.succeed(defaultCompiler)
+          // The default-major's extraClasspath was built against that major's
+          // scala3-library/TASTy and is unsafe to forward to a different
+          // major (would let user code reference symbols the requested version
+          // doesn't have, or trigger TASTy/library-version errors). The
+          // per-major classpath (when supplied by the build plugin) IS built
+          // against this major and is safe to use; fall back to empty when no
+          // override is configured.
+          case Some(f) =>
+            val major = v.takeWhile(_ != '.')
+            val cp = majorClasspaths.getOrElse(major, Vector.empty)
+            f.forVersion(v, cp, scalacOptions)
+          case None => ZIO.succeed(defaultCompiler)
 
   private def buildContext(
       priorCode: Vector[String],
@@ -187,17 +201,19 @@ private final class CompilerServiceAdapter(
 
 private object CompilerServiceAdapter:
   def fixed(compiler: Compiler): CompilerService =
-    new CompilerServiceAdapter(compiler, None, Vector.empty)
+    new CompilerServiceAdapter(compiler, None, Vector.empty, Map.empty)
 
   def fromFactory(
       defaultCompiler: Compiler,
       factory: CompilerFactory,
-      scalacOptions: Vector[String]
+      scalacOptions: Vector[String],
+      majorClasspaths: Map[String, Vector[String]] = Map.empty
   ): CompilerService =
     new CompilerServiceAdapter(
       defaultCompiler,
       Some(factory),
-      scalacOptions
+      scalacOptions,
+      majorClasspaths
     )
 
 /** Live implementation */

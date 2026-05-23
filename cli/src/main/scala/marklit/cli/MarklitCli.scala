@@ -19,6 +19,8 @@ final case class MarklitOptions(
     check: Boolean,
     showVersionInOutput: Boolean,
     classpath: Option[String],
+    classpath2: Option[String],
+    classpath3: Option[String],
     dependencies: List[String],
     repositories: List[String],
     scalaVersion: Option[String]
@@ -60,7 +62,21 @@ object MarklitCli extends ZIOCliDefault:
 
   val classpath: Options[Option[String]] =
     Options.text("classpath").alias("cp").optional ??
-      "Additional classpath entries (colon or semicolon separated)"
+      "Default classpath (used by blocks compiled at the default Scala major; colon/semicolon-separated)"
+
+  // Per-major classpath overrides. When a block is compiled against a Scala
+  // major different from the file/CLI default, the default --classpath is
+  // built against the wrong major and forwarding it would either let user
+  // code reference symbols the requested version doesn't have, or trigger
+  // TASTy/library mismatches. The per-major flags let the build plugin send
+  // the matching classpath for each major it cross-publishes.
+  val classpath2: Options[Option[String]] =
+    Options.text("classpath-2").optional ??
+      "Classpath used when compiling Scala 2.x cross-version blocks (colon/semicolon-separated)"
+
+  val classpath3: Options[Option[String]] =
+    Options.text("classpath-3").optional ??
+      "Classpath used when compiling Scala 3.x cross-version blocks (colon/semicolon-separated)"
 
   // keyValueMap allows --dep key=value to be repeated, we use it with dummy values
   // User can do: --dep dev.zio::zio:2.1.24=_ --dep org.typelevel::cats:2.10.0=_
@@ -87,19 +103,21 @@ object MarklitCli extends ZIOCliDefault:
         Boolean,
         Boolean,
         Option[String],
+        Option[String],
+        Option[String],
         List[String],
         List[String],
         Option[String]
     )
   ] =
-    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ classpath ++ dependencies ++ repositories ++ scalaVersion
+    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion
 
   // Main command
   val marklitCommand: Command[MarklitOptions] =
     Command("marklit", combinedOptions, inputFiles)
       .map { case (opts, files) =>
-        val (out, w, v, c, showV, cp, deps, repos, sv) = opts
-        MarklitOptions(files, out, w, v, c, showV, cp, deps, repos, sv)
+        val (out, w, v, c, showV, cp, cp2, cp3, deps, repos, sv) = opts
+        MarklitOptions(files, out, w, v, c, showV, cp, cp2, cp3, deps, repos, sv)
       }
       .withHelp(
         HelpDoc.p("marklit - Typechecked documentation for Scala") +
@@ -199,6 +217,22 @@ object MarklitCli extends ZIOCliDefault:
       }
       fullClasspath = cliClasspath ++ filteredResolved
 
+      // Per-major classpaths from the build plugin's cross-publish: each
+      // entry's classpath is built against that major and is the right one
+      // to use for `marklit:scala=<that-major>.x.y` blocks. The default
+      // --classpath above remains the path used for blocks compiled at the
+      // default major. Resolved Coursier deps are version-agnostic enough to
+      // share across majors here; the per-version classloader's transitive
+      // scala-library/scala3-library wins by virtue of the filter above.
+      majorClasspaths = Map(
+        "2" -> options.classpath2,
+        "3" -> options.classpath3
+      ).flatMap { case (m, cpOpt) =>
+        cpOpt
+          .map(_.split("[;:]").toVector ++ filteredResolved)
+          .map(m -> _)
+      }
+
       // Print override notifications: one info line per file whose using
       // directive opts into a Scala version different from the CLI default.
       _ <- ZIO.foreachDiscard(perFile) { case (path, directives) =>
@@ -225,7 +259,8 @@ object MarklitCli extends ZIOCliDefault:
               Marklit.liveWithFactory(
                 fileDefault,
                 fullClasspath,
-                fileScalacOptions
+                fileScalacOptions,
+                majorClasspaths
               )
             )
             .mapError(e => new RuntimeException(e.pretty))
