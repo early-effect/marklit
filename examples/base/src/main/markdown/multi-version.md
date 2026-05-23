@@ -1,8 +1,8 @@
-# Multi-Version Scala 3 Compilation
+# Multi-Version Scala Compilation
 
-marklit can compile each code block against a *different* Scala 3 version
-in the same document. Below, the same snippet runs under several different
-compilers, resolved on the fly via Coursier.
+marklit can compile each code block against a *different* Scala version
+in the same document — including Scala 2.13. Below, the same snippet runs
+under several different compilers, resolved on the fly via Coursier.
 
 The version annotation appearing above each output block (`// Scala x.y.z`)
 is emitted by marklit — it tells you which compiler actually produced that
@@ -15,9 +15,10 @@ default scope, "as if prepended at the document's start." That makes them
 ideal for imports or helpers used across versions.
 
 ```scala marklit:shared
-def reportVersion(): Unit =
+def reportVersion(): Unit = {
   val v = scala.util.Properties.versionNumberString
   println(s"compiled against Scala $v")
+}
 ```
 
 ## File default — uses the project's declared `scalaVersion`
@@ -62,11 +63,24 @@ classloader leakage between mismatched library jars.
 reportVersion()
 ```
 
+## Cross the major boundary — `scala=2.13.16`
+
+marklit also supports Scala 2.13. The bundled CLI carries a thin nsc-side
+shim alongside the dotc shim; at runtime marklit picks the right shim based
+on the requested major and resolves `scala-compiler:2.13.x` via Coursier.
+
+The 2.13 block has its own per-version default scope, so the `shared`
+`reportVersion` helper is recompiled here with 2.13's standard library.
+
+```scala marklit:scala=2.13.16
+reportVersion()
+```
+
 ## Why this matters
 
-The `marklit-cli` jar is built once and bundles **only** a thin shim against
-Scala 3.3.7's `scala3-compiler` API. At runtime, every per-version
-classloader gets a fresh copy of the user-requested `scala3-compiler` (and
-its matching `scala3-library`) from Coursier — so user code is always
-compiled and run by the version they asked for, never by the bundled shim's
+The `marklit-cli` jar is built once and bundles **only** thin shims against
+the dotc (3.x) and nsc (2.13) compiler APIs. At runtime, every per-version
+classloader gets a fresh copy of the user-requested compiler (and its
+matching standard library) from Coursier — so user code is always compiled
+and run by the version they asked for, never by the bundled shim's
 version.

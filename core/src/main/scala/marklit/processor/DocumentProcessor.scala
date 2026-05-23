@@ -79,6 +79,19 @@ trait CompilerService:
   /** The default Scala version used when a block does not specify one. */
   def defaultScalaVersion: String
 
+  /** A default version for the requested major. Used to resolve bare-major
+    * scope-config requests (`scala=2`, `scala=3`) to a concrete version when
+    * the service's [[defaultScalaVersion]] is not in the requested major. The
+    * default for the matching major is [[defaultScalaVersion]] itself.
+    *
+    * Returns `None` if marklit can't pick a default for that major (e.g. an
+    * unsupported major like `1`); the block is then skipped.
+    */
+  def defaultVersionForMajor(major: String): Option[String] =
+    if defaultScalaVersion.takeWhile(_ != '.') == major then
+      Some(defaultScalaVersion)
+    else None
+
   def compile(
       code: String,
       priorCode: Vector[String],
@@ -119,7 +132,10 @@ final class DocumentProcessorLive(
               b.scopeConfig.id.isEmpty &&
               b.scopeConfig.extendsScope.isEmpty &&
               !b.scopeConfig.append =>
-          b.requestedSpecificScalaVersion.getOrElse(scalaVersion)
+          b.requestedSpecificScalaVersion.orElse {
+            b.scopeConfig.scalaVersion
+              .flatMap(compiler.defaultVersionForMajor)
+          }.getOrElse(scalaVersion)
       }.toVector :+ scalaVersion).distinct
 
     // Pre-seed phase: for every shared block (in document order), inject its
@@ -147,16 +163,36 @@ final class DocumentProcessorLive(
       }
 
   private def processBlock(block: CodeBlock): IO[MarklitError, BlockResult] =
-    // The version this block actually compiled against. Per-block specific
-    // versions win; otherwise we fall back to the service's default version.
-    val effectiveVersion: String =
-      block.requestedSpecificScalaVersion.getOrElse(scalaVersion)
+    // Resolve the version this block compiles against. Precedence:
+    //   1. Per-block specific version (e.g. `scala=3.7.0`) — exact request.
+    //   2. Per-block bare-major (e.g. `scala=2`) — pick a default for that
+    //      major. When the service's default already matches, that version
+    //      is used; otherwise CompilerService picks a per-major default
+    //      (e.g. the bundled 2.13 shim version). If no default exists for
+    //      the major, skip the block.
+    //   3. Service default — for blocks with no version request.
+    val resolvedVersion: Option[Either[Unit, String]] =
+      block.requestedSpecificScalaVersion match
+        case Some(v) => Some(Right(v))
+        case None    =>
+          block.scopeConfig.scalaVersion match
+            case Some(bareMajor) =>
+              compiler.defaultVersionForMajor(bareMajor) match
+                case Some(v) => Some(Right(v))
+                case None    => Some(Left(()))
+            case None => None
+
+    val (effectiveVersion: String, requestedVersion: Option[String]) =
+      resolvedVersion match
+        case Some(Right(v)) =>
+          (v, if v == scalaVersion then None else Some(v))
+        case _ => (scalaVersion, None)
 
     // Handle passthrough blocks - no processing
     if block.isPassthrough then
       ZIO.succeed(BlockResult(block, None, None, None))
-    // Skip blocks that don't match the current Scala version
-    else if !block.isCompatibleWith(scalaVersion) then
+    // Skip when bare-major requests a major we have no default for.
+    else if resolvedVersion.contains(Left(())) then
       ZIO.succeed(BlockResult(block, None, None, None, skipped = true))
     else
       val effect = for
@@ -175,10 +211,15 @@ final class DocumentProcessorLive(
           else rawPriorCode
 
         // Compile
-        compileResult <- compileBlock(block, allPriorCode)
+        compileResult <- compileBlock(block, allPriorCode, requestedVersion)
 
         // Execute if compilation succeeded and block should execute
-        execResult <- executeBlock(block, allPriorCode, compileResult)
+        execResult <- executeBlock(
+          block,
+          allPriorCode,
+          compileResult,
+          requestedVersion
+        )
 
         // Record code in scope for subsequent blocks. Skip:
         //  - fail/crash blocks (intentionally broken code)
@@ -210,9 +251,10 @@ final class DocumentProcessorLive(
 
   private def compileBlock(
       block: CodeBlock,
-      priorCode: Vector[String]
+      priorCode: Vector[String],
+      requestedVersion: Option[String]
   ): IO[MarklitError, CompileResult] =
-    val v = block.requestedSpecificScalaVersion
+    val v = requestedVersion
     if block.expectsFailure then
       // For fail blocks, we expect compilation to fail
       compiler.compile(block.code, priorCode, block.isZIOApp, v).either.map {
@@ -270,9 +312,10 @@ final class DocumentProcessorLive(
   private def executeBlock(
       block: CodeBlock,
       priorCode: Vector[String],
-      compileResult: CompileResult
+      compileResult: CompileResult,
+      requestedVersion: Option[String]
   ): IO[MarklitError, ExecResult] =
-    val v = block.requestedSpecificScalaVersion
+    val v = requestedVersion
     if compileResult.success && block.shouldExecute then
       if block.expectsCrash then
         // For crash blocks, expect runtime exception - capture it for display

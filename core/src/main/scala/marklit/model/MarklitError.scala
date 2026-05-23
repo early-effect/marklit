@@ -20,8 +20,6 @@ enum MarklitError:
   case ParseError(location: Location, message: String)
   case CompileError(diagnostics: List[ScalaDiagnostic])
   case RuntimeError(exception: Throwable, output: String)
-  case BspConnectionError(message: String, cause: Option[Throwable] = None)
-  case BspProtocolError(message: String)
   case ValidationError(location: Location, message: String)
 
   def pretty: String = this match
@@ -29,6 +27,4 @@ enum MarklitError:
     case CompileError(diags)      => diags.map(_.pretty).mkString("\n")
     case RuntimeError(ex, output) =>
       s"Runtime error: ${ex.getMessage}\nOutput: $output"
-    case BspConnectionError(msg, _) => s"BSP connection error: $msg"
-    case BspProtocolError(msg)      => s"BSP protocol error: $msg"
     case ValidationError(loc, msg) => s"Validation error at ${loc.pretty}: $msg"

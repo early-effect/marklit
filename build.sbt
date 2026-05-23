@@ -8,6 +8,11 @@ val marklitScalaVersion = "3.8.3"
 // for a 3.x line.
 val shimScalaVersion = "3.3.7"
 
+// Scala version the 2.13 compiler shim is built against. The 2.13 nsc API
+// is stable, so we pin to the latest patch. User-requested 2.13.x version
+// is still resolved fresh per-block via Coursier.
+val shim2ScalaVersion = "2.13.16"
+
 val zioVersion = "2.1.26"
 val coursierInterfaceVersion = "1.0.9"
 
@@ -23,7 +28,15 @@ ThisBuild / scalacOptions ++= Seq(
 
 lazy val root = project
   .in(file("."))
-  .aggregate(compilerApi, compilerShim, core, compiler, cli, plugin)
+  .aggregate(
+    compilerApi,
+    compilerShim,
+    compilerShim2,
+    core,
+    compiler,
+    cli,
+    plugin
+  )
   .settings(
     name := "marklit-root",
     publish / skip := true
@@ -87,6 +100,34 @@ lazy val compilerShim = project
 // Provided, and `compiler-api` is loaded via its own classloader at runtime).
 // We package only the shim's own compile output, not its transitive deps.
 
+// The 2.13 sibling of `compilerShim`. Imports `scala.tools.nsc.*` (the
+// classic Scala compiler), compiled against `shim2ScalaVersion`. The
+// orchestrator picks this shim when a block requests `scala=2.x.y` or
+// `scala=2`, mirroring the dotc shim path on the 3.x side.
+lazy val compilerShim2 = project
+  .in(file("compiler-shim-2"))
+  .dependsOn(compilerApi)
+  .settings(
+    name := "marklit-compiler-shim-2",
+    publish / skip := true,
+    scalaVersion := shim2ScalaVersion,
+    // Match shim's "extra" warnings off — the 2.13 nsc API has long-
+    // deprecated members we touch through StoreReporter; suppress noise.
+    scalacOptions := Seq("-deprecation", "-feature"),
+    libraryDependencies ++= Seq(
+      "org.scala-lang" % "scala-compiler" % shim2ScalaVersion % Provided
+    ),
+    // Embed the 2.13 shim's compile-time scala version so the orchestrator
+    // can read it without touching shim classes (which would require
+    // scala-compiler on the probe classpath).
+    Compile / resourceGenerators += Def.task {
+      val target =
+        (Compile / resourceManaged).value / "marklit-shim-2-version.txt"
+      IO.write(target, shim2ScalaVersion)
+      Seq(target)
+    }.taskValue
+  )
+
 // Alias to rebuild CLI assembly and publish plugin locally
 addCommandAlias(
   "publishAll",
@@ -122,22 +163,23 @@ lazy val compiler = project
       "dev.zio" %% "zio-test" % zioVersion % Test,
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
 
-      // BSP client
-      "ch.epfl.scala" % "bsp4j" % "2.2.0-M2",
-
       // JSON parsing
-      "dev.zio" %% "zio-json" % "0.9.2",
-
-      // Test containers for integration tests
-      "org.testcontainers" % "testcontainers" % "2.0.5" % Test
+      "dev.zio" %% "zio-json" % "0.9.2"
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    // The shim jar is wired into the compiler test classpath as a resource so
-    // CompilerFactory tests can load it without going through the CLI.
+    // Both shim jars are wired into the compiler test classpath as resources
+    // so CompilerFactory tests can load them without going through the CLI.
     Test / resourceGenerators += Def.task {
       val shimJar = (compilerShim / Compile / packageBin).value
       val resourceDir = (Test / resourceManaged).value
       val targetFile = resourceDir / "marklit-compiler-shim.jar"
+      IO.copyFile(shimJar, targetFile)
+      Seq(targetFile)
+    }.taskValue,
+    Test / resourceGenerators += Def.task {
+      val shimJar = (compilerShim2 / Compile / packageBin).value
+      val resourceDir = (Test / resourceManaged).value
+      val targetFile = resourceDir / "marklit-compiler-shim-2.jar"
       IO.copyFile(shimJar, targetFile)
       Seq(targetFile)
     }.taskValue
@@ -160,14 +202,22 @@ lazy val cli = project
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    // Bundle the compiler-shim jar as a resource. The CompilerFactory extracts
-    // this at runtime onto each per-version compiler classloader. The jar is
-    // thin (shim classes only — scala3-compiler is Provided), so it works
-    // against whatever scala3-compiler version the user requested.
+    // Bundle both compiler-shim jars as resources. CompilerFactory extracts
+    // the right one at runtime onto each per-version compiler classloader
+    // depending on the requested major (3.x → dotc shim; 2.13.x → nsc shim).
+    // Each jar is thin (shim classes only — scala-compiler is Provided), so
+    // it works against whatever exact version the user requested.
     Compile / resourceGenerators += Def.task {
       val shimJar = (compilerShim / Compile / packageBin).value
       val resourceDir = (Compile / resourceManaged).value
       val targetFile = resourceDir / "marklit-compiler-shim.jar"
+      IO.copyFile(shimJar, targetFile)
+      Seq(targetFile)
+    }.taskValue,
+    Compile / resourceGenerators += Def.task {
+      val shimJar = (compilerShim2 / Compile / packageBin).value
+      val resourceDir = (Compile / resourceManaged).value
+      val targetFile = resourceDir / "marklit-compiler-shim-2.jar"
       IO.copyFile(shimJar, targetFile)
       Seq(targetFile)
     }.taskValue,

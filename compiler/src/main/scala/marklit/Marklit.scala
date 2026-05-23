@@ -118,6 +118,20 @@ private final class CompilerServiceAdapter(
 
   override def defaultScalaVersion: String = defaultCompiler.scalaVersion
 
+  /** Per-major defaults used to resolve bare-major requests (`scala=2`,
+    * `scala=3`). When the major matches the service's own default, that wins
+    * (handled by the trait's base implementation). Otherwise we fall back to
+    * the bundled shim version for the requested major — `defaultScalaVersion`
+    * for `3`, `defaultScala2Version` for `2`.
+    */
+  override def defaultVersionForMajor(major: String): Option[String] =
+    super.defaultVersionForMajor(major).orElse {
+      major match
+        case "3" => Some(CompilerFactory.defaultScalaVersion)
+        case "2" => Some(CompilerFactory.defaultScala2Version)
+        case _   => None
+    }
+
   private def compilerFor(
       requested: Option[String]
   ): IO[MarklitError, Compiler] =

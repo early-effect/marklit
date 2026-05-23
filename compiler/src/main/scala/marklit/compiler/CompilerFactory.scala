@@ -48,8 +48,9 @@ trait CompilerFactory:
 
 object CompilerFactory:
 
-  /** Default version — the version the bundled shim was compiled against. Used
-    * when no version is specified by document, CLI flag, or build plugin.
+  /** Default Scala 3 version — the version the bundled 3.x shim was compiled
+    * against. Used when no version is specified by document, CLI flag, or build
+    * plugin.
     *
     * Read from a plain text resource embedded in the shim jar at build time
     * (see build.sbt's `compilerShim` resource generator). Reading a `.txt`
@@ -58,15 +59,28 @@ object CompilerFactory:
     * per-version isolation contract.
     */
   def defaultScalaVersion: String =
+    readShimVersion("/marklit-compiler-shim.jar", "marklit-shim-version.txt")
+
+  /** Default Scala 2 version — the version the bundled 2.13 shim was compiled
+    * against. Used when a block requests a bare-major `scala=2` and the file/CLI
+    * default is not itself a 2.13.x version.
+    */
+  def defaultScala2Version: String =
+    readShimVersion("/marklit-compiler-shim-2.jar", "marklit-shim-2-version.txt")
+
+  private def readShimVersion(
+      shimResource: String,
+      versionEntry: String
+  ): String =
     val tmp = Files.createTempFile("marklit-shim-probe-", ".jar")
     try
-      copyShimResource(tmp)
+      copyResource(shimResource, tmp)
       val zip = new java.util.zip.ZipFile(tmp.toFile)
       try
-        val entry = zip.getEntry("marklit-shim-version.txt")
+        val entry = zip.getEntry(versionEntry)
         if entry == null then
           throw new IllegalStateException(
-            "marklit-shim-version.txt missing from shim jar — build.sbt resource generator did not run"
+            s"$versionEntry missing from shim jar — build.sbt resource generator did not run"
           )
         val in = zip.getInputStream(entry)
         try new String(in.readAllBytes(), "UTF-8").trim
@@ -74,33 +88,47 @@ object CompilerFactory:
       finally zip.close()
     finally Files.deleteIfExists(tmp): Unit
 
-  /** Build a CompilerFactory backed by an extracted copy of the bundled shim
-    * jar plus Coursier resolution for each requested version.
+  /** Build a CompilerFactory backed by extracted copies of both bundled shim
+    * jars (3.x dotc shim and 2.13 nsc shim) plus Coursier resolution for each
+    * requested version.
     */
   val layer: ZLayer[Any, Throwable, CompilerFactory] =
     ZLayer.scoped {
       for
-        shimJar <- ZIO.acquireRelease(
-          ZIO.attemptBlocking {
-            val tmp = Files.createTempFile("marklit-shim-", ".jar")
-            copyShimResource(tmp)
-            tmp
-          }
-        )(p => ZIO.attempt(Files.deleteIfExists(p): Unit).ignore)
+        shim3 <- extractResource("/marklit-compiler-shim.jar", "marklit-shim-")
+        shim2 <- extractResource(
+          "/marklit-compiler-shim-2.jar",
+          "marklit-shim-2-"
+        )
         cache <- Ref.make(Map.empty[String, VersionBundle])
-      yield new Live(shimJar, cache)
+      yield new Live(shim3, shim2, cache)
     }
 
-  /** Layer variant for tests: takes the shim jar path explicitly so tests can
-    * point at the freshly-built `compilerShim/Compile/packageBin` output
-    * without going through the CLI fat jar.
+  /** Layer variant for tests: takes both shim jar paths explicitly so tests can
+    * point at the freshly-built `compilerShim` / `compilerShim2` packageBin
+    * outputs without going through the CLI fat jar.
     */
-  def testLayer(shimJar: Path): ZLayer[Any, Nothing, CompilerFactory] =
+  def testLayer(
+      shim3Jar: Path,
+      shim2Jar: Path
+  ): ZLayer[Any, Nothing, CompilerFactory] =
     ZLayer.scoped {
       Ref
         .make(Map.empty[String, VersionBundle])
-        .map(cache => new Live(shimJar, cache))
+        .map(cache => new Live(shim3Jar, shim2Jar, cache))
     }
+
+  private def extractResource(
+      resource: String,
+      tmpPrefix: String
+  ): ZIO[Scope, Throwable, Path] =
+    ZIO.acquireRelease(
+      ZIO.attemptBlocking {
+        val tmp = Files.createTempFile(tmpPrefix, ".jar")
+        copyResource(resource, tmp)
+        tmp
+      }
+    )(p => ZIO.attempt(Files.deleteIfExists(p): Unit).ignore)
 
   /** Cached per-version state: the resolved compiler jars, the per-version
     * classloader, and the [[DotcInvoker]] instance loaded from it. Sharing
@@ -115,12 +143,11 @@ object CompilerFactory:
 
   // ---------- Internals ----------
 
-  /** Copy the shim jar resource to the given path. Errors out loudly if the
+  /** Copy a classpath resource to the given path. Errors out loudly if the
     * resource is missing — that means the build is broken (the cli module's
     * resourceGenerators step in build.sbt didn't run).
     */
-  private def copyShimResource(target: Path): Unit =
-    val name = "/marklit-compiler-shim.jar"
+  private def copyResource(name: String, target: Path): Unit =
     val in = Option(getClass.getResourceAsStream(name)).getOrElse {
       throw new IllegalStateException(
         s"shim resource '$name' not on classpath — was build.sbt's CLI resourceGenerators step skipped?"
@@ -172,7 +199,8 @@ object CompilerFactory:
       else throw new ClassNotFoundException(name)
 
   private final class Live(
-      shimJar: Path,
+      shim3Jar: Path,
+      shim2Jar: Path,
       cache: Ref[Map[String, VersionBundle]]
   ) extends CompilerFactory:
     override def forVersion(
@@ -207,14 +235,19 @@ object CompilerFactory:
       }
 
     private def buildBundle(scalaVersion: String): VersionBundle =
+      val (shimJar, invokerClass) =
+        if scalaVersion.startsWith("3") then
+          (shim3Jar, "marklit.compiler.shim.DotcInvokerImpl")
+        else if scalaVersion.startsWith("2.13") then
+          (shim2Jar, "marklit.compiler.shim.NscInvokerImpl")
+        else
+          throw new IllegalArgumentException(
+            s"Unsupported Scala version '$scalaVersion'. Marklit supports 2.13.x and 3.x."
+          )
       val compilerJars =
         DependencyResolver.resolveScalaCompilerSync(scalaVersion)
       val loader = buildLoader(shimJar, compilerJars)
-      val invokerCls = Class.forName(
-        "marklit.compiler.shim.DotcInvokerImpl",
-        true,
-        loader
-      )
+      val invokerCls = Class.forName(invokerClass, true, loader)
       val invoker = invokerCls
         .getDeclaredConstructor()
         .newInstance()

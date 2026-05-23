@@ -282,19 +282,19 @@ object DependencyResolver:
     val fetch = Fetch.create().addDependencies(deps*)
     fetch.fetch().asScala.toVector.map(_.getAbsolutePath)
 
-  /** Resolve scala3-compiler jars (with all transitive dependencies, including
-    * scala3-library + scala-library 2.13). Used by CompilerFactory to build a
-    * per-version classloader for invoking dotc reflectively.
+  /** Resolve compiler jars (with all transitive deps, including the matching
+    * stdlib). Used by CompilerFactory to build a per-version classloader for
+    * invoking either dotc (Scala 3) or nsc (Scala 2.13) reflectively.
     *
-    * Scala 2 is intentionally unsupported here — marklit's compile path is
-    * Scala 3 only. The Compiler trait abstraction makes adding Scala 2 later
-    * possible (via nsc), but it is its own work item.
+    * Scala 2.13.x maps to `org.scala-lang:scala-compiler:<version>`. Earlier
+    * 2.x lines (2.12, 2.11) are explicitly rejected — marklit only supports
+    * 2.13 and 3.x.
     *
     * @param scalaVersion
-    *   Full Scala 3 version (e.g., "3.7.0")
+    *   Full Scala version (e.g. "3.7.0", "2.13.16").
     * @return
-    *   List of JAR file paths sufficient to invoke dotc.Driver — order matters
-    *   only insofar as the URLClassLoader will scan in the given order.
+    *   List of JAR file paths sufficient to invoke the matching compiler.
+    *   Order is the URLClassLoader scan order.
     */
   def resolveScalaCompiler(scalaVersion: String): Task[Vector[String]] =
     ZIO.attemptBlocking {
@@ -303,15 +303,18 @@ object DependencyResolver:
 
   /** Synchronous version for use in CompilerFactory initialization */
   def resolveScalaCompilerSync(scalaVersion: String): Vector[String] =
-    require(
-      scalaVersion.startsWith("3"),
-      s"resolveScalaCompiler is Scala 3 only; got '$scalaVersion'"
-    )
+    val dep =
+      if scalaVersion.startsWith("3") then
+        Dependency.of("org.scala-lang", "scala3-compiler_3", scalaVersion)
+      else if scalaVersion.startsWith("2.13") then
+        Dependency.of("org.scala-lang", "scala-compiler", scalaVersion)
+      else
+        throw new IllegalArgumentException(
+          s"Unsupported Scala version '$scalaVersion'. Marklit supports 2.13.x and 3.x; earlier 2.x lines are not supported."
+        )
     Fetch
       .create()
-      .addDependencies(
-        Dependency.of("org.scala-lang", "scala3-compiler_3", scalaVersion)
-      )
+      .addDependencies(dep)
       .fetch()
       .asScala
       .toVector

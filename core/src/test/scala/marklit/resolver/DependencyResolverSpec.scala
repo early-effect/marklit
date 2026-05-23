@@ -56,14 +56,23 @@ object DependencyResolverSpec extends ZIOSpecDefault:
             jars.exists(_.contains("scala3-library_3-3.7.0"))
           )
         },
-        test("rejects Scala 2 versions with a clear message") {
+        test("resolves scala-compiler for 2.13.x") {
+          val jars = DependencyResolver.resolveScalaCompilerSync("2.13.16")
+          assertTrue(
+            jars.exists(_.contains("scala-compiler-2.13.16")),
+            jars.exists(_.contains("scala-library-2.13.16")),
+            // scala-reflect is part of the 2.13 stdlib distribution.
+            jars.exists(_.contains("scala-reflect-2.13.16"))
+          )
+        },
+        test("rejects unsupported Scala lines (e.g. 2.12)") {
           val ex = scala.util
-            .Try(DependencyResolver.resolveScalaCompilerSync("2.13.16"))
+            .Try(DependencyResolver.resolveScalaCompilerSync("2.12.20"))
             .failed
             .get
           assertTrue(
             ex.isInstanceOf[IllegalArgumentException],
-            ex.getMessage.contains("Scala 3 only")
+            ex.getMessage.contains("Unsupported Scala version")
           )
         }
       )

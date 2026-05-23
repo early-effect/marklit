@@ -20,8 +20,14 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
       compileResults: Map[String, CompileResult] = Map.empty,
       executeResults: Map[String, String] = Map.empty,
       failExecution: Set[String] = Set.empty,
-      override val defaultScalaVersion: String = "3.3.3"
+      override val defaultScalaVersion: String = "3.3.3",
+      majorDefaults: Map[String, String] = Map.empty
   ) extends CompilerService:
+    override def defaultVersionForMajor(major: String): Option[String] =
+      majorDefaults
+        .get(major)
+        .orElse(super.defaultVersionForMajor(major))
+
     val compileCalls =
       scala.collection.mutable.ArrayBuffer.empty[(String, Vector[String])]
     val compileCallsWithVersion =
@@ -485,12 +491,18 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         )
       },
 
-      test("bare-major scala=2 is skipped on a 3.x default (filter)") {
+      test(
+        "bare-major scala=2 on a 3.x default auto-resolves to a 2.13 default"
+      ) {
+        // CompilerService advertises a per-major default for 2 → "2.13.16".
         val block = makeBlock(
           "val x = 1",
           scopeConfig = ScopeConfig(scalaVersion = Some("2"))
         )
-        val compiler = new TestCompiler(defaultScalaVersion = "3.3.3")
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "3.3.3",
+          majorDefaults = Map("2" -> "2.13.16", "3" -> "3.3.3")
+        )
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -498,17 +510,46 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           result <- processor.process(Vector(block))
         yield assertTrue(
           result.isSuccess,
-          result.blockResults.head.skipped,
-          compiler.compileCalls.isEmpty
+          !result.blockResults.head.skipped,
+          compiler.compileCallsWithVersion.head._3 == Some("2.13.16"),
+          result.blockResults.head.effectiveScalaVersion == Some("2.13.16")
         )
       },
 
-      test("bare-major scala=3 is skipped on a 2.x default (filter)") {
+      test(
+        "bare-major scala=3 on a 2.x default auto-resolves to a 3.x default"
+      ) {
         val block = makeBlock(
           "enum Foo",
           scopeConfig = ScopeConfig(scalaVersion = Some("3"))
         )
-        val compiler = new TestCompiler(defaultScalaVersion = "2.13.12")
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "2.13.12",
+          majorDefaults = Map("2" -> "2.13.12", "3" -> "3.8.3")
+        )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(block))
+        yield assertTrue(
+          result.isSuccess,
+          !result.blockResults.head.skipped,
+          compiler.compileCallsWithVersion.head._3 == Some("3.8.3"),
+          result.blockResults.head.effectiveScalaVersion == Some("3.8.3")
+        )
+      },
+
+      test("bare-major with no default for that major is skipped") {
+        // No mapping for major "2" — should fall back to skip.
+        val block = makeBlock(
+          "val x = 1",
+          scopeConfig = ScopeConfig(scalaVersion = Some("2"))
+        )
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "3.3.3",
+          majorDefaults = Map("3" -> "3.3.3")
+        )
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -565,7 +606,11 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           "scala 2 only",
           scopeConfig = ScopeConfig(scalaVersion = Some("2"))
         )
-        val compiler = new TestCompiler(defaultScalaVersion = "3.3.3")
+        // No default for major 2 — block2 is skipped.
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "3.3.3",
+          majorDefaults = Map("3" -> "3.3.3")
+        )
 
         for
           scopeManager <- ZIO.service[ScopeManager]
