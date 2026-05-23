@@ -8,13 +8,30 @@ The version annotation appearing above each output block (`// Scala x.y.z`)
 is emitted by marklit — it tells you which compiler actually produced that
 output.
 
-## A `shared` setup block
+## Major-scoped `shared` setup blocks
 
 Blocks marked `shared` contribute their code to *every* per-version
-default scope, "as if prepended at the document's start." That makes them
-ideal for imports or helpers used across versions.
+default scope, "as if prepended at the document's start." `shared-3` /
+`shared-2` restrict the contribution to a single major — useful when the
+helper code uses APIs that only exist on one side.
 
-```scala marklit:shared
+Each helper here defines `reportVersion()` to print the version actually
+reported by the running compiler / library:
+
+- on Scala 3, `dotty.tools.dotc.config.Properties.versionNumberString`
+  reports the running scala3-compiler version (the per-version compiler
+  jar is on the runtime classloader, so this resolves naturally);
+- on Scala 2.13, `scala.util.Properties.versionNumberString` reports the
+  scala-library version, which is also the language version.
+
+```scala marklit:shared-3
+def reportVersion(): Unit = {
+  val v = dotty.tools.dotc.config.Properties.versionNumberString
+  println(s"compiled against Scala $v")
+}
+```
+
+```scala marklit:shared-2
 def reportVersion(): Unit = {
   val v = scala.util.Properties.versionNumberString
   println(s"compiled against Scala $v")

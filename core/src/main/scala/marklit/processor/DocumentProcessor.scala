@@ -135,6 +135,11 @@ final class DocumentProcessorLive(
           b.requestedSpecificScalaVersion.orElse {
             b.scopeConfig.scalaVersion
               .flatMap(compiler.defaultVersionForMajor)
+          }.orElse {
+            // shared-{mv} contributes to its major's default scope; make sure
+            // that scope exists in versionsInUse even if no concrete block in
+            // the document declares that major.
+            b.sharedMajor.flatMap(compiler.defaultVersionForMajor)
           }.getOrElse(scalaVersion)
       }.toVector :+ scalaVersion).distinct
 
@@ -180,7 +185,15 @@ final class DocumentProcessorLive(
               compiler.defaultVersionForMajor(bareMajor) match
                 case Some(v) => Some(Right(v))
                 case None    => Some(Left(()))
-            case None => None
+            case None =>
+              // A `shared-{mv}` block belongs to its major's default scope; if
+              // we let it inherit the file default, it would land on a scope
+              // pre-seeded with shared-{other-mv} and produce duplicate
+              // definitions. Resolve to a default for its declared major.
+              block.sharedMajor.flatMap(compiler.defaultVersionForMajor) match
+                case Some(v) => Some(Right(v))
+                case None    =>
+                  if block.sharedMajor.isDefined then Some(Left(())) else None
 
     val (effectiveVersion: String, requestedVersion: Option[String]) =
       resolvedVersion match
