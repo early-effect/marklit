@@ -93,6 +93,42 @@ The 2.13 block has its own per-version default scope, so the `shared`
 reportVersion()
 ```
 
+## Cross-built dependency: `example.Greeter`
+
+The example project contains a sibling `core` module that's cross-built
+for Scala 2.13 and Scala 3. Both jars are on the classpath that marklit
+sees, and both expose the same `example.Greeter.hello` method.
+
+The default 3.x block reaches the 3.x build of core:
+
+```scala
+println(example.Greeter.hello("Scala 3"))
+```
+
+The 2.13 cross-version block reaches the 2.13 build of core (when the
+build plugin has been configured to publish a per-major classpath —
+plain `--classpath` carries only one major's jars):
+
+```scala marklit:scala=2.13.16
+println(example.Greeter.hello("Scala 2.13"))
+```
+
+## Per-major shape: `example.Color`
+
+`Color` lives in `core/src/main/scala-3/` as a real Scala 3 `enum` and
+in `core/src/main/scala-2.13/` as a sealed-trait + case-objects
+encoding. The 3.x and 2.13 builds of core therefore expose different
+underlying class shapes for the *same* fully-qualified name. The call
+sites here look identical:
+
+```scala
+println(example.Color.Red.code)
+```
+
+```scala marklit:scala=2.13.16
+println(example.Color.Red.code)
+```
+
 ## Why this matters
 
 The `marklit-cli` jar is built once and bundles **only** thin shims against
