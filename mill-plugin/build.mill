@@ -1,0 +1,179 @@
+package build
+
+import mill._
+import mill.scalalib._
+import mill.scalalib.publish._
+
+// Scala version used to compile marklit's own modules (cli aggregate of
+// core/compiler/cli, plus the Mill plugin trait). User code is never compiled
+// against this — it's just the version of marklit's orchestration code.
+def marklitScalaVersion = "3.8.3"
+
+// Scala version the compiler-shim is built against. Pinned to the oldest
+// supported 3.x to keep the shim's dotc API surface compatible at runtime
+// against any user-requested 3.x compiler. The shim's compile-time version
+// also serves as the default fallback when no document, CLI flag, or build
+// plugin picks a version. Bump only when we drop support for a 3.x line.
+def shimScalaVersion = "3.3.7"
+
+// Project root - all top-level modules live one level above mill-plugin/.
+private def projectRoot(moduleDir: os.Path) = moduleDir / os.up / os.up
+
+// compiler-api: Java-only, version-neutral interfaces shared between the
+// orchestrator and the per-version compiler shim. Must NOT depend on Scala
+// or any Scala library — that's what makes it loadable from a custom parent
+// classloader visible to both the orchestrator and each per-version loader.
+object compilerApi extends JavaModule {
+  override def sources = Task.Sources(
+    projectRoot(moduleDir) / "compiler-api" / "src" / "main" / "java"
+  )
+}
+
+// compiler-shim: the ONLY module that imports dotty.tools.dotc.*. Compiled
+// against a known scala3-compiler version, but at runtime its dotc references
+// are resolved against whatever scala3-compiler the orchestrator loaded into
+// the per-version URLClassLoader. The dotc API surface used here (Driver,
+// Reporter, Diagnostic) is stable across 3.x.
+//
+// Packaged as a thin jar — scala3-compiler is provided/runtime-resolved, and
+// compiler-api is loaded via its own classloader at runtime.
+object compilerShim extends ScalaModule {
+  def scalaVersion = shimScalaVersion
+
+  override def moduleDeps = Seq(compilerApi)
+
+  // scala3-compiler at compile time only; at runtime the shim is loaded onto
+  // a classloader where the per-version compiler jars live.
+  override def compileMvnDeps = Seq(
+    mvn"org.scala-lang::scala3-compiler:$shimScalaVersion"
+  )
+
+  override def sources = Task.Sources(
+    projectRoot(moduleDir) / "compiler-shim" / "src" / "main" / "scala"
+  )
+
+  // Embed the shim's compile-time scala3 version as a plain text resource so
+  // CompilerFactory.defaultScalaVersion can read it WITHOUT loading any shim
+  // classes (which would transitively need scala3-compiler on the classpath
+  // — defeating the whole point of the per-version classloader).
+  override def resources = Task {
+    val versionFile = Task.dest / "marklit-shim-version.txt"
+    os.write.over(versionFile, shimScalaVersion)
+    super.resources() ++ Seq(PathRef(Task.dest))
+  }
+}
+
+// CLI module - builds the fat jar that does the actual work. Bundles the
+// shim's thin jar as a resource (NOT on the orchestrator classpath); the
+// CompilerFactory extracts and loads it on per-version classloaders at
+// runtime.
+object cli extends ScalaModule {
+  def scalaVersion = marklitScalaVersion
+
+  override def moduleDeps = Seq(compilerApi)
+
+  def mvnDeps = Seq(
+    // ZIO
+    mvn"dev.zio::zio:2.1.24",
+    mvn"dev.zio::zio-streams:2.1.24",
+    mvn"dev.zio::zio-json:0.9.0",
+    mvn"dev.zio::zio-cli:0.8.0",
+    // Markdown parsing
+    mvn"com.lihaoyi::fastparse:3.1.1",
+    // BSP client
+    mvn"ch.epfl.scala:bsp4j:2.2.0-M2",
+    // Coursier for dependency resolution
+    mvn"io.get-coursier:interface:1.0.9"
+  )
+
+  // Include core, compiler, and cli sources from the main project. Note: we
+  // do NOT include compiler-shim sources here — that would pull dotty.* onto
+  // the orchestrator's classpath and break per-version isolation.
+  override def sources = Task.Sources(
+    projectRoot(moduleDir) / "core" / "src" / "main" / "scala",
+    projectRoot(moduleDir) / "compiler" / "src" / "main" / "scala",
+    projectRoot(moduleDir) / "cli" / "src" / "main" / "scala"
+  )
+
+  // Bundle the shim's thin jar as a resource. CompilerFactory extracts this at
+  // runtime onto each per-version compiler classloader. The jar is thin
+  // (shim classes only — scala3-compiler is provided), so it works against
+  // whatever scala3-compiler version the user requested.
+  override def resources = Task {
+    val shimJar = compilerShim.jar()
+    val resourceDir = Task.dest / "marklit-compiler-shim.jar"
+    os.copy(shimJar.path, resourceDir, replaceExisting = true)
+    super.resources() ++ Seq(PathRef(Task.dest))
+  }
+
+  // Assembly configuration - exclude signature files
+  override def assemblyRules = Seq(
+    Assembly.Rule.ExcludePattern(".*\\.SF"),
+    Assembly.Rule.ExcludePattern(".*\\.DSA"),
+    Assembly.Rule.ExcludePattern(".*\\.RSA"),
+    Assembly.Rule.ExcludePattern(".*module-info\\.class"),
+    Assembly.Rule.Append("reference.conf")
+  )
+
+  override def mainClass = Some("marklit.cli.MarklitCli")
+}
+
+// Plugin module - provides the Mill integration, shells out to CLI jar
+object plugin extends ScalaModule with PublishModule {
+  def scalaVersion = marklitScalaVersion
+
+  // Project root - plugin's moduleDir is mill-plugin/plugin
+  private def projectRoot = moduleDir / os.up / os.up
+
+  override def artifactName = "mill-marklit"
+
+  // Only need Mill libs for the plugin trait
+  def mvnDeps = Seq(
+    mvn"com.lihaoyi::mill-libs:1.1.5"
+  )
+
+  // Plugin source only - the actual work is done by the CLI jar
+  override def sources = Task.Sources(
+    moduleDir / os.up / "src"
+  )
+
+  // Include the CLI assembly jar as a resource
+  // Use the Mill-built CLI assembly
+  override def resources = Task {
+    val cliJar = cli.assembly()
+    val resourceDir = Task.dest / "marklit-cli.jar"
+    os.copy(cliJar.path, resourceDir, replaceExisting = true)
+    super.resources() ++ Seq(PathRef(Task.dest))
+  }
+
+  // Skip scaladoc generation to avoid compiler conflicts
+  override def docJar = Task {
+    val jarFile = Task.dest / "javadoc.jar"
+    os.write(jarFile, Array.emptyByteArray)
+    // Create minimal valid jar
+    val jos = new java.util.jar.JarOutputStream(new java.io.FileOutputStream(jarFile.toIO))
+    jos.close()
+    PathRef(jarFile)
+  }
+
+  // Publishing configuration
+  def publishVersion = "0.1.0-SNAPSHOT"
+
+  def pomSettings = PomSettings(
+    description = "Mill plugin for marklit - typechecked Scala documentation",
+    organization = "io.github.russwyte",
+    url = "https://github.com/russwyte/marklit",
+    licenses = Seq(License.`Apache-2.0`),
+    versionControl = VersionControl.github("russwyte", "marklit"),
+    developers = Seq(
+      Developer("russwyte", "Russ White", "https://github.com/russwyte")
+    )
+  )
+
+  object test extends ScalaTests with TestModule.Utest {
+    def mvnDeps = Seq(
+      mvn"com.lihaoyi::mill-testkit:1.1.5",
+      mvn"com.lihaoyi::utest:0.8.4"
+    )
+  }
+}
