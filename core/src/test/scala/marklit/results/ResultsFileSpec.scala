@@ -37,11 +37,11 @@ object ResultsFileSpec extends ZIOSpecDefault:
     suite("BlockResultEntry")(
       test("creates from BlockResult") {
         val br = makeBlockResult("val x = 1", output = Some("result"))
-        val entry = BlockResultEntry.fromBlockResult(br, "3.3.3")
+        val entry = BlockResultEntry.fromBlockResult(br, "3.3.7")
 
         assertTrue(
           entry.locationKey == "test.md:10:1",
-          entry.scalaVersion == "3.3.3",
+          entry.scalaVersion == "3.3.7",
           entry.code == "val x = 1",
           entry.success,
           !entry.skipped,
@@ -51,7 +51,7 @@ object ResultsFileSpec extends ZIOSpecDefault:
 
       test("marks skipped blocks") {
         val br = makeBlockResult("val x = 1", skipped = true)
-        val entry = BlockResultEntry.fromBlockResult(br, "3.3.3")
+        val entry = BlockResultEntry.fromBlockResult(br, "3.3.7")
 
         assertTrue(entry.skipped)
       }
@@ -68,10 +68,10 @@ object ResultsFileSpec extends ZIOSpecDefault:
         )
 
         val runResults =
-          RunResults.fromDocumentResult(docResult, "3.3.3", "test.md")
+          RunResults.fromDocumentResult(docResult, "3.3.7", "test.md")
 
         assertTrue(
-          runResults.scalaVersion == "3.3.3",
+          runResults.scalaVersion == "3.3.7",
           runResults.sourceFile == "test.md",
           runResults.blocks.size == 2
         )
@@ -87,7 +87,7 @@ object ResultsFileSpec extends ZIOSpecDefault:
         )
 
         val runResults =
-          RunResults.fromDocumentResult(docResult, "3.3.3", "test.md")
+          RunResults.fromDocumentResult(docResult, "3.3.7", "test.md")
 
         assertTrue(
           runResults.blocks.size == 2,
@@ -103,13 +103,13 @@ object ResultsFileSpec extends ZIOSpecDefault:
         )
 
         val runResults =
-          RunResults.fromDocumentResult(docResult, "3.3.3", "test.md")
+          RunResults.fromDocumentResult(docResult, "3.3.7", "test.md")
         val json = runResults.toJson
         val parsed = json.fromJson[RunResults]
 
         assertTrue(
           parsed.isRight,
-          parsed.toOption.get.scalaVersion == "3.3.3",
+          parsed.toOption.get.scalaVersion == "3.3.7",
           parsed.toOption.get.blocks.size == 1
         )
       }
@@ -136,13 +136,13 @@ object ResultsFileSpec extends ZIOSpecDefault:
         )
 
         val run2 = RunResults(
-          scalaVersion = "3.3.3",
+          scalaVersion = "3.3.7",
           sourceFile = "test.md",
           timestamp = 2000L,
           blocks = Vector(
             BlockResultEntry(
               "test.md:10:1",
-              "3.3.3",
+              "3.3.7",
               "val x = 1",
               success = true,
               skipped = false,
@@ -159,19 +159,19 @@ object ResultsFileSpec extends ZIOSpecDefault:
           merged.runs.size == 2,
           merged.blocksByLocation.size == 1,
           merged.blocksByLocation("test.md:10:1").size == 2,
-          merged.versionsForBlock("test.md:10:1") == Vector("2.13.12", "3.3.3")
+          merged.versionsForBlock("test.md:10:1") == Vector("2.13.12", "3.3.7")
         )
       },
 
       test("isSuccess checks all processed blocks") {
         val run1 = RunResults(
-          scalaVersion = "3.3.3",
+          scalaVersion = "3.3.7",
           sourceFile = "test.md",
           timestamp = 1000L,
           blocks = Vector(
             BlockResultEntry(
               "test.md:10:1",
-              "3.3.3",
+              "3.3.7",
               "val x = 1",
               success = true,
               skipped = false,
@@ -181,7 +181,7 @@ object ResultsFileSpec extends ZIOSpecDefault:
             ),
             BlockResultEntry(
               "test.md:20:1",
-              "3.3.3",
+              "3.3.7",
               "val y = 2",
               success = false,
               skipped = false,
@@ -199,13 +199,13 @@ object ResultsFileSpec extends ZIOSpecDefault:
 
       test("skipped blocks don't affect isSuccess") {
         val run1 = RunResults(
-          scalaVersion = "3.3.3",
+          scalaVersion = "3.3.7",
           sourceFile = "test.md",
           timestamp = 1000L,
           blocks = Vector(
             BlockResultEntry(
               "test.md:10:1",
-              "3.3.3",
+              "3.3.7",
               "val x = 1",
               success = true,
               skipped = false,
@@ -215,7 +215,7 @@ object ResultsFileSpec extends ZIOSpecDefault:
             ),
             BlockResultEntry(
               "test.md:20:1",
-              "3.3.3",
+              "3.3.7",
               "scala 2 only",
               success = false,
               skipped = true,
@@ -239,7 +239,7 @@ object ResultsFileSpec extends ZIOSpecDefault:
           blocks = Vector()
         )
         val run2 = RunResults(
-          scalaVersion = "3.3.3",
+          scalaVersion = "3.3.7",
           sourceFile = "test.md",
           timestamp = 2000L,
           blocks = Vector()

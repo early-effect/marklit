@@ -20,7 +20,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
       compileResults: Map[String, CompileResult] = Map.empty,
       executeResults: Map[String, String] = Map.empty,
       failExecution: Set[String] = Set.empty,
-      override val defaultScalaVersion: String = "3.3.3",
+      override val defaultScalaVersion: String = "3.3.7",
       majorDefaults: Map[String, String] = Map.empty
   ) extends CompilerService:
     override def defaultVersionForMajor(major: String): Option[String] =
@@ -457,7 +457,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
     suite("scala version selection")(
       test("blocks without version are processed under default") {
         val block = makeBlock("val x = 1")
-        val compiler = new TestCompiler(defaultScalaVersion = "3.3.3")
+        val compiler = new TestCompiler(defaultScalaVersion = "3.3.7")
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -476,7 +476,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           "enum Foo",
           scopeConfig = ScopeConfig(scalaVersion = Some("3"))
         )
-        val compiler = new TestCompiler(defaultScalaVersion = "3.3.3")
+        val compiler = new TestCompiler(defaultScalaVersion = "3.3.7")
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -500,8 +500,8 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           scopeConfig = ScopeConfig(scalaVersion = Some("2"))
         )
         val compiler = new TestCompiler(
-          defaultScalaVersion = "3.3.3",
-          majorDefaults = Map("2" -> "2.13.16", "3" -> "3.3.3")
+          defaultScalaVersion = "3.3.7",
+          majorDefaults = Map("2" -> "2.13.16", "3" -> "3.3.7")
         )
 
         for
@@ -547,8 +547,8 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           scopeConfig = ScopeConfig(scalaVersion = Some("2"))
         )
         val compiler = new TestCompiler(
-          defaultScalaVersion = "3.3.3",
-          majorDefaults = Map("3" -> "3.3.3")
+          defaultScalaVersion = "3.3.7",
+          majorDefaults = Map("3" -> "3.3.7")
         )
 
         for
@@ -567,7 +567,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           "val x = 1",
           scopeConfig = ScopeConfig(scalaVersion = Some("3.7.0"))
         )
-        val compiler = new TestCompiler(defaultScalaVersion = "3.3.3")
+        val compiler = new TestCompiler(defaultScalaVersion = "3.3.7")
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -587,7 +587,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           "val x = 1",
           scopeConfig = ScopeConfig(scalaVersion = Some("3.3"))
         )
-        val compiler = new TestCompiler(defaultScalaVersion = "3.3.3")
+        val compiler = new TestCompiler(defaultScalaVersion = "3.3.7")
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -608,8 +608,8 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         )
         // No default for major 2 — block2 is skipped.
         val compiler = new TestCompiler(
-          defaultScalaVersion = "3.3.3",
-          majorDefaults = Map("3" -> "3.3.3")
+          defaultScalaVersion = "3.3.7",
+          majorDefaults = Map("3" -> "3.3.7")
         )
 
         for

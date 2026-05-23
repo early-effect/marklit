@@ -264,7 +264,7 @@ Using sbt's [version-specific source directories](https://www.scala-sbt.org/1.x/
 // build.sbt
 lazy val compiler = project
   .settings(
-    crossScalaVersions := Seq("2.13.12", "3.3.3"),
+    crossScalaVersions := Seq("2.13.12", "3.3.7"),
     libraryDependencies ++= {
       if (scalaVersion.value.startsWith("2."))
         Seq("org.scala-lang" % "scala-compiler" % scalaVersion.value)
@@ -507,7 +507,7 @@ marklit docs/ --out target/docs/
 marklit docs/ \
   --out target/docs/ \
   --watch \
-  --scala-version 3.3.1 \
+  --scala-version 3.3.7 \
   --site.VERSION 1.0.0 \
   --classpath "lib/*"
 ```
@@ -520,7 +520,7 @@ import marklit.*
 val settings = Settings(
   inputDir = Path("docs"),
   outputDir = Path("target/docs"),
-  scalaVersion = "3.3.1",
+  scalaVersion = "3.3.7",
   siteVariables = Map("VERSION" -> "1.0.0"),
   classpath = List(Path("lib"))
 )
