@@ -95,15 +95,17 @@ trait CompilerService:
   def compile(
       code: String,
       priorCode: Vector[String],
-      isZIOApp: Boolean = false,
-      scalaVersion: Option[String] = None
+      isZIOApp: Boolean,
+      scalaVersion: Option[String],
+      location: Option[Location]
   ): IO[MarklitError, CompileResult]
 
   def execute(
       code: String,
       priorCode: Vector[String],
-      isZIOApp: Boolean = false,
-      scalaVersion: Option[String] = None
+      isZIOApp: Boolean,
+      scalaVersion: Option[String],
+      classFilesDir: Option[java.nio.file.Path]
   ): IO[MarklitError, String]
 
 /** Live implementation that processes blocks sequentially, respecting scope
@@ -132,15 +134,18 @@ final class DocumentProcessorLive(
               b.scopeConfig.id.isEmpty &&
               b.scopeConfig.extendsScope.isEmpty &&
               !b.scopeConfig.append =>
-          b.requestedSpecificScalaVersion.orElse {
-            b.scopeConfig.scalaVersion
-              .flatMap(compiler.defaultVersionForMajor)
-          }.orElse {
-            // shared-{mv} contributes to its major's default scope; make sure
-            // that scope exists in versionsInUse even if no concrete block in
-            // the document declares that major.
-            b.sharedMajor.flatMap(compiler.defaultVersionForMajor)
-          }.getOrElse(scalaVersion)
+          b.requestedSpecificScalaVersion
+            .orElse {
+              b.scopeConfig.scalaVersion
+                .flatMap(compiler.defaultVersionForMajor)
+            }
+            .orElse {
+              // shared-{mv} contributes to its major's default scope; make sure
+              // that scope exists in versionsInUse even if no concrete block in
+              // the document declares that major.
+              b.sharedMajor.flatMap(compiler.defaultVersionForMajor)
+            }
+            .getOrElse(scalaVersion)
       }.toVector :+ scalaVersion).distinct
 
     // Pre-seed phase: for every shared block (in document order), inject its
@@ -268,53 +273,58 @@ final class DocumentProcessorLive(
       requestedVersion: Option[String]
   ): IO[MarklitError, CompileResult] =
     val v = requestedVersion
+    val loc = Some(block.location)
     if block.expectsFailure then
       // For fail blocks, we expect compilation to fail
-      compiler.compile(block.code, priorCode, block.isZIOApp, v).either.map {
-        case Left(_) =>
-          // Expected failure - treat as success
-          CompileResult(success = true, diagnostics = Nil)
-        case Right(cr) if !cr.success =>
-          // Got expected failure
-          CompileResult(success = true, diagnostics = cr.diagnostics)
-        case Right(_) =>
-          // Compilation succeeded when it should have failed
-          CompileResult(
-            success = false,
-            diagnostics = List(
-              ScalaDiagnostic(
-                DiagnosticSeverity.Error,
-                "Expected compilation failure, but code compiled successfully",
-                block.location.startLine,
-                block.location.startColumn,
-                Some(block.location.file)
+      compiler
+        .compile(block.code, priorCode, block.isZIOApp, v, loc)
+        .either
+        .map {
+          case Left(_) =>
+            // Expected failure - treat as success
+            CompileResult(success = true, diagnostics = Nil)
+          case Right(cr) if !cr.success =>
+            // Got expected failure
+            CompileResult(success = true, diagnostics = cr.diagnostics)
+          case Right(_) =>
+            // Compilation succeeded when it should have failed
+            CompileResult(
+              success = false,
+              diagnostics = List(
+                ScalaDiagnostic(
+                  DiagnosticSeverity.Error,
+                  "Expected compilation failure, but code compiled successfully",
+                  block.location.startLine,
+                  block.location.startColumn,
+                  Some(block.location.file)
+                )
               )
             )
-          )
-      }
+        }
     else if block.expectsWarnings then
       // For warn blocks, we expect compilation warnings
-      compiler.compile(block.code, priorCode, block.isZIOApp, v).map { cr =>
-        val hasWarnings = cr.warnings.nonEmpty
-        if hasWarnings then
-          // Got expected warnings - success
-          cr
-        else
-          // No warnings when we expected some
-          CompileResult(
-            success = false,
-            diagnostics = List(
-              ScalaDiagnostic(
-                DiagnosticSeverity.Error,
-                "Expected compilation warnings, but code compiled without warnings",
-                block.location.startLine,
-                block.location.startColumn,
-                Some(block.location.file)
+      compiler.compile(block.code, priorCode, block.isZIOApp, v, loc).map {
+        cr =>
+          val hasWarnings = cr.warnings.nonEmpty
+          if hasWarnings then
+            // Got expected warnings - success
+            cr
+          else
+            // No warnings when we expected some
+            CompileResult(
+              success = false,
+              diagnostics = List(
+                ScalaDiagnostic(
+                  DiagnosticSeverity.Error,
+                  "Expected compilation warnings, but code compiled without warnings",
+                  block.location.startLine,
+                  block.location.startColumn,
+                  Some(block.location.file)
+                )
               )
             )
-          )
       }
-    else compiler.compile(block.code, priorCode, block.isZIOApp, v)
+    else compiler.compile(block.code, priorCode, block.isZIOApp, v, loc)
 
   /** Result of execution, including both output and any captured error */
   private case class ExecResult(
@@ -329,28 +339,32 @@ final class DocumentProcessorLive(
       requestedVersion: Option[String]
   ): IO[MarklitError, ExecResult] =
     val v = requestedVersion
+    val dir = compileResult.classFilesDir
     if compileResult.success && block.shouldExecute then
       if block.expectsCrash then
         // For crash blocks, expect runtime exception - capture it for display
-        compiler.execute(block.code, priorCode, block.isZIOApp, v).either.map {
-          case Left(err @ MarklitError.RuntimeError(_, output)) =>
-            ExecResult(
-              if output.nonEmpty then Some(output) else None,
-              Some(err)
-            ) // Expected crash
-          case Left(e) =>
-            ExecResult(Some(s"Unexpected error: ${e.pretty}"), None)
-          case Right(output) =>
-            ExecResult(
-              Some(
-                s"Expected runtime crash, but execution succeeded with output: $output"
-              ),
-              None
-            )
-        }
+        compiler
+          .execute(block.code, priorCode, block.isZIOApp, v, dir)
+          .either
+          .map {
+            case Left(err @ MarklitError.RuntimeError(_, output)) =>
+              ExecResult(
+                if output.nonEmpty then Some(output) else None,
+                Some(err)
+              ) // Expected crash
+            case Left(e) =>
+              ExecResult(Some(s"Unexpected error: ${e.pretty}"), None)
+            case Right(output) =>
+              ExecResult(
+                Some(
+                  s"Expected runtime crash, but execution succeeded with output: $output"
+                ),
+                None
+              )
+          }
       else
         compiler
-          .execute(block.code, priorCode, block.isZIOApp, v)
+          .execute(block.code, priorCode, block.isZIOApp, v, dir)
           .map(out => ExecResult(Some(out), None))
     else ZIO.succeed(ExecResult(None, None))
 

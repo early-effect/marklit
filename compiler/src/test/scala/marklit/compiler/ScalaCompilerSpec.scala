@@ -84,6 +84,63 @@ object ScalaCompilerSpec extends ZIOSpecDefault:
           result.output.contains("sum = 3")
         )
       }
+    ),
+
+    suite("classFilesDir / executeFromDir")(
+      test("compile populates classFilesDir with the wrapper class") {
+        for result <- Compiler.compile(
+            """val x = 1 + 2""",
+            ScopeContext.empty
+          )
+        yield assertTrue(
+          result.success,
+          result.classFilesDir.isDefined,
+          result.classFilesDir
+            .exists(d => java.nio.file.Files.isDirectory(d)),
+          result.classFilesDir.exists(d =>
+            java.nio.file.Files.isRegularFile(
+              d.resolve("MarklitWrapper$.class")
+            )
+          )
+        )
+      },
+
+      test("a failed compile carries no classFilesDir") {
+        for result <- Compiler.compile(
+            "val x: String = 42",
+            ScopeContext.empty
+          )
+        yield assertTrue(
+          !result.success,
+          result.classFilesDir.isEmpty
+        )
+      },
+
+      test("executeFromDir reuses a prior compile's class files") {
+        val code = """println("from-dir")"""
+        for
+          compiler <- ZIO.service[Compiler]
+          compiled <- compiler.compile(code, ScopeContext.empty)
+          dir = compiled.classFilesDir.getOrElse(
+            sys.error("expected compile to populate classFilesDir")
+          )
+          // Snapshot the dir's mtime: executeFromDir must NOT recompile, so
+          // mtimes of the existing class files should not move.
+          beforeMtime = java.nio.file.Files
+            .getLastModifiedTime(dir.resolve("MarklitWrapper$.class"))
+            .toMillis
+          _ <- Live.live(
+            ZIO.sleep(50.millis)
+          ) // ensure any rewrite would change mtime
+          executed <- compiler.executeFromDir(dir, ScopeContext.empty)
+          afterMtime = java.nio.file.Files
+            .getLastModifiedTime(dir.resolve("MarklitWrapper$.class"))
+            .toMillis
+        yield assertTrue(
+          executed.output.contains("from-dir"),
+          beforeMtime == afterMtime
+        )
+      }
     )
   ).provideShared(TestCompilerLayer.layer) @@ TestAspect.timeout(
     60.seconds

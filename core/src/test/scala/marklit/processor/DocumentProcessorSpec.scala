@@ -38,12 +38,16 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
     val executeCallsWithVersion =
       scala.collection.mutable.ArrayBuffer
         .empty[(String, Vector[String], Option[String])]
+    val executeCallsWithDir =
+      scala.collection.mutable.ArrayBuffer
+        .empty[(String, Option[java.nio.file.Path])]
 
     override def compile(
         code: String,
         priorCode: Vector[String],
-        isZIOApp: Boolean = false,
-        scalaVersion: Option[String] = None
+        isZIOApp: Boolean,
+        scalaVersion: Option[String],
+        location: Option[Location]
     ): IO[MarklitError, CompileResult] =
       compileCalls += ((code, priorCode))
       compileCallsWithVersion += ((code, priorCode, scalaVersion))
@@ -57,11 +61,13 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
     override def execute(
         code: String,
         priorCode: Vector[String],
-        isZIOApp: Boolean = false,
-        scalaVersion: Option[String] = None
+        isZIOApp: Boolean,
+        scalaVersion: Option[String],
+        classFilesDir: Option[java.nio.file.Path]
     ): IO[MarklitError, String] =
       executeCalls += ((code, priorCode))
       executeCallsWithVersion += ((code, priorCode, scalaVersion))
+      executeCallsWithDir += ((code, classFilesDir))
       if failExecution.contains(code) then
         ZIO.fail(
           MarklitError
@@ -93,6 +99,62 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           result.blockResults.head.executionOutput == Some("1\n"),
           compiler.compileCalls.size == 1,
           compiler.executeCalls.size == 1
+        )
+      },
+
+      test(
+        "executeBlock receives the classFilesDir from the prior compileBlock"
+      ) {
+        // Phase B.2 contract: DocumentProcessor must thread the
+        // classFilesDir from the compile result into the subsequent execute
+        // call, so the CompilerService can skip a redundant recompile.
+        val fakeDir = java.nio.file.Paths.get("/tmp/marklit-fake-block-xyz")
+        val block = makeBlock("println(\"x\")")
+        val compiler = new TestCompiler(
+          compileResults = Map(
+            "println(\"x\")" -> CompileResult(
+              success = true,
+              diagnostics = Nil,
+              classFilesDir = Some(fakeDir)
+            )
+          ),
+          executeResults = Map("println(\"x\")" -> "x\n")
+        )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          _ <- processor.process(Vector(block))
+        yield assertTrue(
+          compiler.executeCallsWithDir.size == 1,
+          compiler.executeCallsWithDir.head._2.contains(fakeDir)
+        )
+      },
+
+      test(
+        "executeBlock receives None when compile produced no classFilesDir"
+      ) {
+        // The synthesized branches in compileBlock (expectsFailure /
+        // expectsWarnings stand-ins) don't carry a dir — and that's fine,
+        // because those blocks don't reach executeBlock anyway. But for
+        // ordinary blocks where the compiler returns no dir (older mocks,
+        // adapters that strip it), the processor must still pass through
+        // None rather than crash.
+        val block = makeBlock("println(0)")
+        val compiler = new TestCompiler(
+          compileResults = Map(
+            "println(0)" -> CompileResult(success = true, diagnostics = Nil)
+          ),
+          executeResults = Map("println(0)" -> "0\n")
+        )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          _ <- processor.process(Vector(block))
+        yield assertTrue(
+          compiler.executeCallsWithDir.size == 1,
+          compiler.executeCallsWithDir.head._2.isEmpty
         )
       },
 

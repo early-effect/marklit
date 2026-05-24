@@ -293,8 +293,8 @@ object DependencyResolver:
     * @param scalaVersion
     *   Full Scala version (e.g. "3.7.0", "2.13.16").
     * @return
-    *   List of JAR file paths sufficient to invoke the matching compiler.
-    *   Order is the URLClassLoader scan order.
+    *   List of JAR file paths sufficient to invoke the matching compiler. Order
+    *   is the URLClassLoader scan order.
     */
   def resolveScalaCompiler(scalaVersion: String): Task[Vector[String]] =
     ZIO.attemptBlocking {

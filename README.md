@@ -23,6 +23,7 @@ marklit lives in [mdoc](https://scalameta.org/mdoc/)'s neighborhood. Many ideas 
 | **Built-in ZIO runtime** (`zio-app` modifier) | ✗ | **✓** |
 | Multiple modifiers per block (`silent,id=setup`) | partial | **✓** |
 | Scoped-by-default — blocks isolated unless you opt in | ✗ | **✓** |
+| **Persistent on-disk block cache + warm-classloader daemon** | ✗ | **✓** |
 
 The multi-version story is the one that pays for the project. You can write a migration guide that shows the *same code* compiled on 2.13 and 3.x, side by side, with both outputs verified by real compilers.
 
@@ -106,6 +107,17 @@ println(example.Greeter.hello("Scala 2.13"))
 
 Both blocks reference `example.Greeter`. Both compile. Both produce real output from the real compiled jar.
 
+## Performance
+
+Compiling Scala (especially across multiple versions) is expensive. marklit has two layers of caching that make warm runs roughly **3-4× faster** than cold runs on the included examples:
+
+- **Long-lived daemon JVM.** The build plugins talk to a marklit subprocess over JSON-RPC instead of spawning a fresh JVM per task. Per-version compiler classloaders stay warm across `marklitGenerate` invocations within a build session. Cold-start of a new Scala version is ~1-2s; subsequent compiles against the same version reuse that loader.
+- **Persistent SHA-256 block cache.** Every block's compiled `.class` files are stored on disk keyed by a hash of `(code, prior code, scalaVersion, classpath, scalac options, …)`. A cache hit skips both compile and re-emit — execution loads the cached class files directly. Cache lives at `target/marklit-cache/` (sbt) or `out/<module>/marklitCacheDir.dest/marklit-cache/` (Mill); both plugins clean it as part of `<proj>/marklitClean`.
+
+Cold-vs-warm on [examples/sbt/](examples/sbt/) (4 markdown files, 46 blocks across 4 Scala versions): **~20s → ~6s**. Mill: **~18s → ~4s**. Same machine, no other changes.
+
+Both layers are on by default. To disable the daemon: `marklitDaemon := false` (sbt) / `def marklitDaemonEnabled = false` (Mill). To disable the disk cache: `marklitCacheDirectory := None` (sbt) / `def marklitCacheDir = None` (Mill).
+
 ## Modifiers
 
 Code fences with the info string `scala marklit:<modifiers>` are processed. Modifiers are comma-separated and freely combined.
@@ -183,22 +195,17 @@ lazy val docs = project
   )
 ```
 
-Tasks:
+Tasks and commands:
 
-| Task | What it does |
+| Name | What it does |
 | --- | --- |
-| `marklitGenerate` | Render Markdown from `marklitSourceDirectory` into `marklitTargetDirectory`. |
-| `marklitCompile` | Verify all blocks compile, but don't write output. |
-| `marklitClean` | Remove the target directory. |
+| `marklitGenerate` *(command)* | Cross-compile any cross-built deps, then render Markdown from every marklit-enabled project. Single command, frictionless from a clean checkout. |
+| `marklitCompile` *(command)* | Same flow as above but verify-only (no rendered output). |
+| `<proj>/marklitGenerate` *(task)* | Render output for one project. Assumes cross-built deps are already compiled — use the build-level command above when you want auto-cross-compile. |
+| `<proj>/marklitCompile` *(task)* | Verify-only sibling of the task above. |
+| `<proj>/marklitClean` *(task)* | Remove the target directory and persistent block cache. |
 
-The plugin auto-passes your project's `fullClasspath` to marklit, so any dependency you've declared in `build.sbt` is available inside code fences. **For cross-built deps**, the plugin walks your `dependsOn` graph, finds any sibling project with a non-default-major entry in `crossScalaVersions`, and forwards each major's classpath as `--classpath-2` / `--classpath-3`. Make sure the cross-builds are compiled first (e.g. `+core/compile`); the example uses a `docs` command alias that does this:
-
-```scala
-addCommandAlias(
-  "docs",
-  "; core/clean; +core/compile; docs/clean; docs/marklitGenerate"
-)
-```
+The plugin auto-passes your project's `fullClasspath` to marklit, so any dependency you've declared in `build.sbt` is available inside code fences. **For cross-built deps**, the plugin walks your `dependsOn` graph, finds any sibling project with a multi-entry `crossScalaVersions`, and forwards each major's classpath as `--classpath-2` / `--classpath-3`. The build-level `marklitGenerate` command schedules `+ depProj/compile` for each cross-built dep before invoking the docs task, so a clean checkout works in a single `sbt marklitGenerate`.
 
 A worked multi-version example lives in [examples/sbt/](examples/sbt/).
 
@@ -249,6 +256,7 @@ Common flags:
 | `--deps`, `-d` | Coursier-style deps, e.g. `dev.zio::zio:2.1.26`. |
 | `--repos`, `-r` | Extra Maven repositories. |
 | `--no-show-version` | Suppress the `// Scala x.y.z` annotation on output blocks. |
+| `--cache-dir` | Persistent on-disk block cache directory (off by default; both build plugins enable it automatically). |
 | `--verbose`, `-v` | Verbose logging. |
 
 You can also declare dependencies inline in a Markdown file using [scala-cli](https://scala-cli.virtuslab.org/) `using` directives:
@@ -297,9 +305,9 @@ The per-version classloader pattern is the same one Bloop and Metals use to host
 ## Building from source
 
 ```sh
-sbt publishAll          # build CLI fat jar + publish sbt plugin locally
-mill plugin.publishLocal # publish mill plugin locally
-sbt test                # core test suite (101 tests)
+sbt publishAll                 # build CLI fat jar + publish sbt plugin locally
+(cd mill-plugin && mill plugin.publishLocal) # publish mill plugin locally
+sbt test                       # full test suite
 ```
 
 ## Inspiration

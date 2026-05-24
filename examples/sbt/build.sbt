@@ -46,9 +46,10 @@ lazy val docs = project
     marklitTargetDirectory := baseDirectory.value / "target" / "docs",
     marklitVerbose := true
     // marklitMajorClasspaths is auto-discovered from this project's
-    // dependsOn graph — every project dep with a non-default-major entry in
-    // crossScalaVersions contributes its compiled classes directory. Just
-    // make sure the cross-builds are on disk first (e.g., `+core/compile`).
+    // dependsOn graph — every project dep with a non-default-major entry
+    // in crossScalaVersions contributes its compiled classes directory.
+    // The build-level `marklitGenerate` command auto-runs `+core/compile`
+    // before the docs task, so a fresh checkout works with a single command.
   )
 
 lazy val root = project
@@ -58,11 +59,3 @@ lazy val root = project
     name := "marklit-sbt-example",
     publish / skip := true
   )
-
-// Cross-build the core module before running docs so the 2.13 jar is
-// available for any 2.13 cross-version blocks. The default `docs` alias
-// builds both 2.13 and 3.x core, then regenerates docs.
-addCommandAlias(
-  "docs",
-  "; core/clean; +core/compile; docs/clean; docs/marklitGenerate"
-)

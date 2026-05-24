@@ -68,7 +68,12 @@ final class ScalaCompiler(
           if context.priorCode.isEmpty then s"$markerCode$codeWithMarker"
           else s"${context.allCode}\n\n$markerCode$codeWithMarker"
 
-        val sourceFile = Files.createTempFile(outputDir, "marklit_", ".scala")
+        // Per-block output directory. Every compile gets its own subdir so
+        // dotc's `MarklitWrapper$.class` from one block doesn't clobber the
+        // next, and so the executor can load class files for *this* block
+        // without re-running dotc — see [[executeFromDir]].
+        val perBlockOut = Files.createTempDirectory(outputDir, "block-")
+        val sourceFile = Files.createTempFile(perBlockOut, "marklit_", ".scala")
         try
           val wrappedCode =
             if context.isZIOApp then wrapInZIOApp(fullCode)
@@ -81,7 +86,7 @@ final class ScalaCompiler(
           val request = new CompileRequest(
             List(sourceFile.toString).asJava,
             effectiveClasspath.asJava,
-            outputDir.toString,
+            perBlockOut.toString,
             effectiveOpts.asJava
           )
 
@@ -102,7 +107,8 @@ final class ScalaCompiler(
 
           CompileResult(
             success = resp.success(),
-            diagnostics = diagnostics
+            diagnostics = diagnostics,
+            classFilesDir = if resp.success() then Some(perBlockOut) else None
           )
         finally Files.deleteIfExists(sourceFile)
       }
@@ -127,11 +133,32 @@ final class ScalaCompiler(
     compile(code, context).flatMap { compileResult =>
       if !compileResult.success then
         ZIO.fail(MarklitError.CompileError(compileResult.errors))
-      else executeCompiled(context)
+      else
+        compileResult.classFilesDir match
+          case Some(dir) => executeFromDir(dir, context)
+          // Defensive: a successful compile *should* carry the dir, but if
+          // some adapter strips it (a cached-result that lost the dir, etc.)
+          // we still need to run the wrapper. The legacy fallback to the
+          // shared outputDir would be unsafe (multi-block clobbering), so we
+          // recompile to obtain a fresh dir.
+          case None =>
+            compile(code, context).flatMap {
+              case CompileResult(true, _, Some(d)) =>
+                executeFromDir(d, context)
+              case other =>
+                ZIO.fail(MarklitError.CompileError(other.errors))
+            }
     }
+
+  override def executeFromDir(
+      classFilesDir: Path,
+      context: ScopeContext
+  ): IO[MarklitError, ExecutionResult] =
+    executeCompiled(classFilesDir, context)
 
   /** Execute the previously compiled MarklitWrapper class */
   private def executeCompiled(
+      classFilesDir: Path,
       context: ScopeContext
   ): IO[MarklitError, ExecutionResult] =
     ZIO
@@ -148,7 +175,7 @@ final class ScalaCompiler(
           java.lang.System.setErr(ps)
 
           val urls = (
-            Vector(outputDir.toUri.toURL) ++
+            Vector(classFilesDir.toUri.toURL) ++
               classpath.map(p => java.nio.file.Paths.get(p).toUri.toURL) ++
               context.classpath.map(p => java.nio.file.Paths.get(p).toUri.toURL)
           ).toArray

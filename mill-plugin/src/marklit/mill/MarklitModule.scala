@@ -118,6 +118,49 @@ trait MarklitModule extends ScalaModule {
   }
 
   /**
+   * Whether to talk to a long-lived marklit daemon JVM instead of spawning a
+   * fresh subprocess per task. The daemon survives across `marklitGenerate` /
+   * `marklitCheck` invocations within one Mill server lifetime, keeping the
+   * per-version compiler classloaders warm. Default: true.
+   */
+  def marklitDaemonEnabled: T[Boolean] = true
+
+  /**
+   * Idle timeout (seconds) before an inactive daemon shuts itself down.
+   * Default: 900 (15 minutes).
+   */
+  def marklitDaemonIdleTimeoutSeconds: T[Long] = 900L
+
+  /**
+   * Persistent on-disk compile cache directory. Defaults to
+   * `moduleDir / "out" / "marklit-cache"`-style under Mill's `Task.dest` for
+   * a dedicated worker, so it survives across `marklitGenerate` /
+   * `marklitCheck` invocations within and across Mill server lifetimes. Set
+   * to `None` to disable caching entirely.
+   */
+  def marklitCacheDir: T[Option[PathRef]] = Task {
+    Some(PathRef(Task.dest / "marklit-cache"))
+  }
+
+  /**
+   * Long-lived RPC client to a marklit daemon. Cached by Mill for the life of
+   * the build server (or until inputs invalidate it); Mill calls
+   * `MarklitDaemonClient.close()` on displacement, which sends a `shutdown`
+   * RPC and tears down the helper JVM.
+   *
+   * Inputs are intentionally narrow — `marklitCliJar` and the idle-timeout
+   * setting. Changing the docs module's classpath or sources should NOT spin
+   * up a new daemon; the per-request `compile-document` payload carries those.
+   */
+  def marklitDaemon: Worker[MarklitDaemonClient] = Task.Worker {
+    new MarklitDaemonClient(
+      marklitCliJar().path,
+      marklitDaemonIdleTimeoutSeconds(),
+      Task.log
+    )
+  }
+
+  /**
    * Path to the marklit CLI jar.
    * By default, extracts the bundled jar from plugin resources.
    */
@@ -149,60 +192,45 @@ trait MarklitModule extends ScalaModule {
     val sourceDir = marklitSourceDir().path
     val targetDir = Task.dest
     val cliJar = marklitCliJar().path
-    val cp = marklitClasspath().map(_.path.toString).mkString(java.io.File.pathSeparator)
-    val majorCps = marklitMajorClasspaths()
+    val cpEntries = marklitClasspath().map(_.path.toString)
+    val majorCps = marklitMajorClasspaths().view
+      .mapValues(_.map(_.path.toString))
+      .toMap
     val showVersion = marklitShowVersion()
     val verbose = marklitVerbose()
     val scalaVer = scalaVersion()
+    val cacheDirOpt = marklitCacheDir().map(_.path.toString)
+    val daemonOpt =
+      if (marklitDaemonEnabled()) Some(marklitDaemon()) else None
 
     if (!os.exists(sourceDir)) {
       Task.log.info(s"[marklit] No source directory: $sourceDir")
       Seq.empty[PathRef]
     } else {
-      val sources = os.walk(sourceDir).filter(_.ext == "md")
+      val sources = os.walk(sourceDir).filter(_.ext == "md").toSeq
       if (sources.isEmpty) {
         Task.log.info(s"[marklit] No markdown files in $sourceDir")
         Seq.empty[PathRef]
       } else {
         Task.log.info(s"[marklit] Generating ${sources.size} file(s)...")
 
-        val args = Seq.newBuilder[String]
-        args += "java"
-        args += "-jar"
-        args += cliJar.toString
-        args += "--out"
-        args += targetDir.toString
-        args += "--scala-version"
-        args += scalaVer
-        if (cp.nonEmpty) {
-          args += "--classpath"
-          args += cp
-        }
-        majorCps.foreach { case (major, cps) =>
-          if (cps.nonEmpty) {
-            args += s"--classpath-$major"
-            args += cps.map(_.path.toString).mkString(java.io.File.pathSeparator)
-          }
-        }
-        if (!showVersion) {
-          args += "--no-show-version"
-        }
-        if (verbose) {
-          args += "--verbose"
-        }
-        args ++= sources.map(_.toString)
+        runMarklit(
+          cliJar = cliJar,
+          sources = sources,
+          outputDir = Some(targetDir),
+          classpath = cpEntries,
+          majorClasspaths = majorCps,
+          scalaVer = scalaVer,
+          showVersion = showVersion,
+          verbose = verbose,
+          check = false,
+          daemon = daemonOpt,
+          taskLabel = "generation",
+          log = Task.log,
+          cacheDir = cacheDirOpt
+        )
 
-        val result = os.proc(args.result()).call(check = false, stderr = os.Pipe, stdout = os.Pipe)
-
-        if (result.exitCode != 0) {
-          Task.log.error(s"marklit stdout: ${result.out.text()}")
-          Task.log.error(s"marklit stderr: ${result.err.text()}")
-          throw new Exception(s"marklit generation failed with exit code ${result.exitCode}")
-        }
-
-        sources.map { source =>
-          PathRef(targetDir / source.last)
-        }
+        sources.map(source => PathRef(targetDir / source.last))
       }
     }
   }
@@ -213,48 +241,184 @@ trait MarklitModule extends ScalaModule {
   def marklitCheck: T[Unit] = Task {
     val sourceDir = marklitSourceDir().path
     val cliJar = marklitCliJar().path
-    val cp = marklitClasspath().map(_.path.toString).mkString(java.io.File.pathSeparator)
-    val majorCps = marklitMajorClasspaths()
+    val cpEntries = marklitClasspath().map(_.path.toString)
+    val majorCps = marklitMajorClasspaths().view
+      .mapValues(_.map(_.path.toString))
+      .toMap
     val verbose = marklitVerbose()
     val scalaVer = scalaVersion()
+    val cacheDirOpt = marklitCacheDir().map(_.path.toString)
+    val daemonOpt =
+      if (marklitDaemonEnabled()) Some(marklitDaemon()) else None
 
     if (!os.exists(sourceDir)) {
       Task.log.info(s"[marklit] No source directory: $sourceDir")
     } else {
-      val sources = os.walk(sourceDir).filter(_.ext == "md")
+      val sources = os.walk(sourceDir).filter(_.ext == "md").toSeq
       if (sources.isEmpty) {
         Task.log.info(s"[marklit] No markdown files in $sourceDir")
       } else {
         Task.log.info(s"[marklit] Checking ${sources.size} file(s)...")
 
-        val args = Seq.newBuilder[String]
-        args += "java"
-        args += "-jar"
-        args += cliJar.toString
-        args += "--check"
-        args += "--scala-version"
-        args += scalaVer
-        if (cp.nonEmpty) {
-          args += "--classpath"
-          args += cp
-        }
-        majorCps.foreach { case (major, cps) =>
-          if (cps.nonEmpty) {
-            args += s"--classpath-$major"
-            args += cps.map(_.path.toString).mkString(java.io.File.pathSeparator)
-          }
-        }
-        if (verbose) {
-          args += "--verbose"
-        }
-        args ++= sources.map(_.toString)
-
-        val result = os.proc(args.result()).call(check = false)
-
-        if (result.exitCode != 0) {
-          throw new Exception(s"marklit check failed with exit code ${result.exitCode}")
-        }
+        runMarklit(
+          cliJar = cliJar,
+          sources = sources,
+          outputDir = None,
+          classpath = cpEntries,
+          majorClasspaths = majorCps,
+          scalaVer = scalaVer,
+          showVersion = true,
+          verbose = verbose,
+          check = true,
+          daemon = daemonOpt,
+          taskLabel = "check",
+          log = Task.log,
+          cacheDir = cacheDirOpt
+        )
       }
+    }
+  }
+
+  /** Send a compile or check request through the daemon when one is provided;
+    * fall back to a one-shot subprocess on transport failure. Mirrors the
+    * sbt-plugin's MarklitRunner.runViaDaemon shape so behavior is consistent
+    * across build tools.
+    */
+  private def runMarklit(
+      cliJar: os.Path,
+      sources: Seq[os.Path],
+      outputDir: Option[os.Path],
+      classpath: Seq[String],
+      majorClasspaths: Map[String, Seq[String]],
+      scalaVer: String,
+      showVersion: Boolean,
+      verbose: Boolean,
+      check: Boolean,
+      daemon: Option[MarklitDaemonClient],
+      taskLabel: String,
+      log: mill.api.daemon.Logger,
+      cacheDir: Option[String]
+  ): Unit = {
+    val sep = java.io.File.pathSeparator
+    val cpStr = if (classpath.isEmpty) None else Some(classpath.mkString(sep))
+    def cpFor(major: String) =
+      majorClasspaths.get(major).map(_.mkString(sep)).filter(_.nonEmpty)
+
+    daemon match {
+      case Some(client) =>
+        try {
+          val ack = client.compileDocument(
+            inputFiles = sources.map(_.toString),
+            outputDir = outputDir.map(_.toString),
+            verbose = verbose,
+            check = check,
+            showVersionInOutput = showVersion,
+            classpath = cpStr,
+            classpath2 = cpFor("2"),
+            classpath3 = cpFor("3"),
+            scalaVersion = Some(scalaVer),
+            cacheDir = cacheDir
+          )
+          ack match {
+            case None => ()
+            case Some(message) =>
+              throw new Exception(s"marklit $taskLabel failed: $message")
+          }
+        } catch {
+          case e: Exception if e.getMessage != null && e.getMessage.startsWith(
+                "marklit " + taskLabel
+              ) =>
+            throw e
+          case t: Throwable =>
+            log.warn(
+              s"[marklit] daemon RPC failed (${t.getMessage}); falling back to one-shot"
+            )
+            runOneShot(
+              cliJar,
+              sources,
+              outputDir,
+              classpath,
+              majorClasspaths,
+              scalaVer,
+              showVersion,
+              verbose,
+              check,
+              taskLabel,
+              log,
+              cacheDir
+            )
+        }
+      case None =>
+        runOneShot(
+          cliJar,
+          sources,
+          outputDir,
+          classpath,
+          majorClasspaths,
+          scalaVer,
+          showVersion,
+          verbose,
+          check,
+          taskLabel,
+          log,
+          cacheDir
+        )
+    }
+  }
+
+  private def runOneShot(
+      cliJar: os.Path,
+      sources: Seq[os.Path],
+      outputDir: Option[os.Path],
+      classpath: Seq[String],
+      majorClasspaths: Map[String, Seq[String]],
+      scalaVer: String,
+      showVersion: Boolean,
+      verbose: Boolean,
+      check: Boolean,
+      taskLabel: String,
+      log: mill.api.daemon.Logger,
+      cacheDir: Option[String]
+  ): Unit = {
+    val sep = java.io.File.pathSeparator
+    val args = Seq.newBuilder[String]
+    args += "java"
+    args += "-jar"
+    args += cliJar.toString
+    outputDir match {
+      case Some(dir) =>
+        args += "--out"
+        args += dir.toString
+      case None =>
+        args += "--check"
+    }
+    args += "--scala-version"
+    args += scalaVer
+    if (classpath.nonEmpty) {
+      args += "--classpath"
+      args += classpath.mkString(sep)
+    }
+    majorClasspaths.foreach { case (major, cps) =>
+      if (cps.nonEmpty) {
+        args += s"--classpath-$major"
+        args += cps.mkString(sep)
+      }
+    }
+    cacheDir.foreach { d =>
+      args += "--cache-dir"
+      args += d
+    }
+    if (outputDir.isDefined && !showVersion) args += "--no-show-version"
+    if (verbose) args += "--verbose"
+    args ++= sources.map(_.toString)
+
+    val result =
+      os.proc(args.result()).call(check = false, stderr = os.Pipe, stdout = os.Pipe)
+
+    if (result.exitCode != 0) {
+      log.error(s"marklit stdout: ${result.out.text()}")
+      log.error(s"marklit stderr: ${result.err.text()}")
+      throw new Exception(s"marklit $taskLabel failed with exit code ${result.exitCode}")
     }
   }
 }

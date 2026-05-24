@@ -62,11 +62,14 @@ object CompilerFactory:
     readShimVersion("/marklit-compiler-shim.jar", "marklit-shim-version.txt")
 
   /** Default Scala 2 version — the version the bundled 2.13 shim was compiled
-    * against. Used when a block requests a bare-major `scala=2` and the file/CLI
-    * default is not itself a 2.13.x version.
+    * against. Used when a block requests a bare-major `scala=2` and the
+    * file/CLI default is not itself a 2.13.x version.
     */
   def defaultScala2Version: String =
-    readShimVersion("/marklit-compiler-shim-2.jar", "marklit-shim-2-version.txt")
+    readShimVersion(
+      "/marklit-compiler-shim-2.jar",
+      "marklit-shim-2-version.txt"
+    )
 
   private def readShimVersion(
       shimResource: String,

@@ -1,5 +1,6 @@
 package marklit
 
+import marklit.cache.{BlockCache, BlockCacheKey}
 import marklit.compiler.*
 import marklit.model.*
 import marklit.parser.*
@@ -8,6 +9,7 @@ import marklit.scope.ScopeManager
 import zio.*
 
 import java.nio.file.{Files, Path}
+import java.security.MessageDigest
 
 /** Result of processing a markdown file */
 final case class MarklitResult(
@@ -72,18 +74,19 @@ object Marklit:
     * factory.
     *
     * @param majorClasspaths
-    *   per-major classpath overrides: when a cross-version block requests
-    *   Scala major `m`, the adapter looks up `majorClasspaths(m)` and
-    *   forwards that to the factory's `forVersion`. When no entry exists for
-    *   the requested major, the cross-version compiler runs with no extra
-    *   classpath (the safe default — see `CompilerServiceAdapter.compilerFor`
-    *   for why we don't reuse the default-major classpath).
+    *   per-major classpath overrides: when a cross-version block requests Scala
+    *   major `m`, the adapter looks up `majorClasspaths(m)` and forwards that
+    *   to the factory's `forVersion`. When no entry exists for the requested
+    *   major, the cross-version compiler runs with no extra classpath (the safe
+    *   default — see `CompilerServiceAdapter.compilerFor` for why we don't
+    *   reuse the default-major classpath).
     */
   def liveWithFactory(
       defaultScalaVersion: String,
       defaultExtraClasspath: Vector[String] = Vector.empty,
       defaultScalacOptions: Vector[String] = Vector.empty,
-      majorClasspaths: Map[String, Vector[String]] = Map.empty
+      majorClasspaths: Map[String, Vector[String]] = Map.empty,
+      cacheDir: Option[Path] = None
   ): ZLayer[CompilerFactory, Nothing, Marklit] =
     ZLayer.fromZIO {
       for
@@ -93,11 +96,14 @@ object Marklit:
           defaultExtraClasspath,
           defaultScalacOptions
         )
+        cache = cacheDir.map(BlockCache.disk).getOrElse(BlockCache.noop)
         adapter = CompilerServiceAdapter.fromFactory(
           defaultC,
           factory,
           defaultScalacOptions,
-          majorClasspaths
+          defaultExtraClasspath,
+          majorClasspaths,
+          cache
         )
       yield MarklitLive(adapter)
     }
@@ -119,12 +125,24 @@ object Marklit:
   *     are ignored.
   *   - [[fromFactory]] holds a default compiler and a factory; per-block
   *     specific versions are resolved through the factory.
+  *
+  * Cache integration: if a non-noop [[BlockCache]] is supplied and the caller
+  * passes a [[Location]] with the request, we hash every input that affects raw
+  * compiler output (block code, prior code, effective version, classpath,
+  * scalac options, ZIO-app flag, source location) and consult the cache before
+  * invoking the underlying compiler. Missing entries are populated on
+  * write-back. Classpath jar content hashes are pre-computed once at adapter
+  * construction (per-bucket) so per-block hashing stays cheap.
   */
 private final class CompilerServiceAdapter(
     defaultCompiler: Compiler,
     factory: Option[CompilerFactory],
     scalacOptions: Vector[String],
-    majorClasspaths: Map[String, Vector[String]]
+    defaultClasspath: Vector[String],
+    majorClasspaths: Map[String, Vector[String]],
+    cache: BlockCache,
+    defaultClasspathHashes: Vector[String],
+    majorClasspathHashes: Map[String, Vector[String]]
 ) extends CompilerService:
 
   override def defaultScalaVersion: String = defaultCompiler.scalaVersion
@@ -165,13 +183,23 @@ private final class CompilerServiceAdapter(
             f.forVersion(v, cp, scalacOptions)
           case None => ZIO.succeed(defaultCompiler)
 
+  /** Build the per-block ScopeContext.
+    *
+    * The output marker MUST be deterministic from the block's inputs: it is
+    * baked into the compiled class files at compile time (as a `print(marker)`
+    * call ahead of the user code) and then matched at execute time to strip
+    * prior-code replay output. Compile and execute go through separate adapter
+    * calls — if the marker were a fresh `UUID.randomUUID()` each time, the
+    * execute-time marker would never match the one in the .class files, and the
+    * marker would leak verbatim into the rendered output.
+    */
   private def buildContext(
+      code: String,
       priorCode: Vector[String],
       isZIOApp: Boolean
   ): ScopeContext =
     val marker =
-      if priorCode.nonEmpty then
-        Some(s"__MARKLIT_${java.util.UUID.randomUUID()}__")
+      if priorCode.nonEmpty then Some(blockMarker(code, priorCode, isZIOApp))
       else None
     ScopeContext(
       priorCode = priorCode,
@@ -179,42 +207,192 @@ private final class CompilerServiceAdapter(
       isZIOApp = isZIOApp
     )
 
+  private def blockMarker(
+      code: String,
+      priorCode: Vector[String],
+      isZIOApp: Boolean
+  ): String =
+    val md = MessageDigest.getInstance("SHA-256")
+    md.update(code.getBytes("UTF-8"))
+    md.update(0.toByte)
+    priorCode.foreach { p =>
+      md.update(p.getBytes("UTF-8"))
+      md.update(0.toByte)
+    }
+    md.update((if isZIOApp then 1 else 0).toByte)
+    val hex = md.digest().take(16).map(b => f"$b%02x").mkString
+    s"__MARKLIT_${hex}__"
+
+  /** Pick the classpath + jar-content-hashes bucket appropriate to a request.
+    *   - No version requested → default classpath/hashes.
+    *   - Same major as default → default classpath/hashes (the per-major bucket
+    *     is for a *different* major than this service's default).
+    *   - Otherwise → per-major bucket if configured, empty otherwise.
+    */
+  private def classpathFor(
+      requested: Option[String]
+  ): (Vector[String], Vector[String]) =
+    requested match
+      case None => (defaultClasspath, defaultClasspathHashes)
+      case Some(v) if v == defaultCompiler.scalaVersion =>
+        (defaultClasspath, defaultClasspathHashes)
+      case Some(v) =>
+        val major = v.takeWhile(_ != '.')
+        if major == defaultCompiler.scalaVersion.takeWhile(_ != '.') then
+          (defaultClasspath, defaultClasspathHashes)
+        else
+          (
+            majorClasspaths.getOrElse(major, Vector.empty),
+            majorClasspathHashes.getOrElse(major, Vector.empty)
+          )
+
   override def compile(
       code: String,
       priorCode: Vector[String],
-      isZIOApp: Boolean = false,
-      scalaVersion: Option[String] = None
+      isZIOApp: Boolean,
+      scalaVersion: Option[String],
+      location: Option[Location]
   ): IO[MarklitError, CompileResult] =
-    compilerFor(scalaVersion).flatMap(
-      _.compile(code, buildContext(priorCode, isZIOApp))
-    )
+    val invoke =
+      compilerFor(scalaVersion).flatMap(
+        _.compile(code, buildContext(code, priorCode, isZIOApp))
+      )
+    location match
+      case None      => invoke
+      case Some(loc) =>
+        val effective = scalaVersion.getOrElse(defaultCompiler.scalaVersion)
+        val (cp, cpHashes) = classpathFor(scalaVersion)
+        val key = BlockCacheKey.make(
+          code = code,
+          priorCode = priorCode,
+          scalaVersion = effective,
+          classpath = cp,
+          classpathHashes = cpHashes,
+          scalacOptions = scalacOptions,
+          isZIOApp = isZIOApp,
+          file = loc.file,
+          startLine = loc.startLine,
+          startColumn = loc.startColumn
+        )
+        cache.get(key).flatMap {
+          case Some(hit) => ZIO.succeed(hit)
+          case None      => invoke.tap(cr => cache.put(key, cr))
+        }
 
   override def execute(
       code: String,
       priorCode: Vector[String],
-      isZIOApp: Boolean = false,
-      scalaVersion: Option[String] = None
+      isZIOApp: Boolean,
+      scalaVersion: Option[String],
+      classFilesDir: Option[Path]
   ): IO[MarklitError, String] =
-    compilerFor(scalaVersion)
-      .flatMap(_.execute(code, buildContext(priorCode, isZIOApp)))
-      .map(_.output)
+    val ctx = buildContext(code, priorCode, isZIOApp)
+    compilerFor(scalaVersion).flatMap { c =>
+      classFilesDir match
+        case Some(dir) => c.executeFromDir(dir, ctx).map(_.output)
+        case None      => c.execute(code, ctx).map(_.output)
+    }
 
 private object CompilerServiceAdapter:
   def fixed(compiler: Compiler): CompilerService =
-    new CompilerServiceAdapter(compiler, None, Vector.empty, Map.empty)
+    new CompilerServiceAdapter(
+      compiler,
+      None,
+      Vector.empty,
+      Vector.empty,
+      Map.empty,
+      BlockCache.noop,
+      Vector.empty,
+      Map.empty
+    )
 
   def fromFactory(
       defaultCompiler: Compiler,
       factory: CompilerFactory,
       scalacOptions: Vector[String],
-      majorClasspaths: Map[String, Vector[String]] = Map.empty
+      defaultClasspath: Vector[String],
+      majorClasspaths: Map[String, Vector[String]] = Map.empty,
+      cache: BlockCache = BlockCache.noop
   ): CompilerService =
+    val defaultHashes = hashClasspath(defaultClasspath)
+    val majorHashes = majorClasspaths.view
+      .mapValues(hashClasspath)
+      .toMap
     new CompilerServiceAdapter(
       defaultCompiler,
       Some(factory),
       scalacOptions,
-      majorClasspaths
+      defaultClasspath,
+      majorClasspaths,
+      cache,
+      defaultHashes,
+      majorHashes
     )
+
+  /** Hash each classpath entry's bytes (jar or class file) once at adapter
+    * construction so per-block cache keys don't have to re-read jars off disk
+    * on every block. Directories are hashed by listing their files and
+    * concatenating their (relative-path, size, mtime) triples — a cheap
+    * approximation that catches the cases we care about (recompilation changes
+    * class files' mtimes; adding a class file extends the listing).
+    *
+    * We deliberately use the path string as the fallback when a file can't be
+    * hashed (missing, permission, unusual): this still varies the key if the
+    * user's classpath layout changes, while never blowing up the build.
+    */
+  private def hashClasspath(entries: Vector[String]): Vector[String] =
+    entries.map { entry =>
+      try
+        val p = java.nio.file.Paths.get(entry)
+        if !java.nio.file.Files.exists(p) then s"missing:$entry"
+        else if java.nio.file.Files.isDirectory(p) then hashDir(p)
+        else hashFile(p)
+      catch case _: Throwable => s"err:$entry"
+    }
+
+  private def hashFile(p: java.nio.file.Path): String =
+    val md = MessageDigest.getInstance("SHA-256")
+    val in = java.nio.file.Files.newInputStream(p)
+    try
+      val buf = new Array[Byte](64 * 1024)
+      var n = in.read(buf)
+      while n > 0 do
+        md.update(buf, 0, n)
+        n = in.read(buf)
+    finally in.close()
+    bytesToHex(md.digest())
+
+  private def hashDir(p: java.nio.file.Path): String =
+    val md = MessageDigest.getInstance("SHA-256")
+    val it =
+      java.nio.file.Files.walk(p).sorted(java.util.Comparator.naturalOrder())
+    try
+      it.forEach { f =>
+        if java.nio.file.Files.isRegularFile(f) then
+          md.update(p.relativize(f).toString.getBytes("UTF-8"))
+          md.update(0.toByte)
+          val attrs = java.nio.file.Files.readAttributes(
+            f,
+            classOf[java.nio.file.attribute.BasicFileAttributes]
+          )
+          md.update(attrs.size().toString.getBytes("UTF-8"))
+          md.update(0.toByte)
+          md.update(
+            attrs.lastModifiedTime().toMillis.toString.getBytes("UTF-8")
+          )
+          md.update(0.toByte)
+      }
+    finally it.close()
+    bytesToHex(md.digest())
+
+  private def bytesToHex(bs: Array[Byte]): String =
+    val sb = new StringBuilder(bs.length * 2)
+    bs.foreach { b =>
+      val v = b & 0xff
+      if v < 16 then sb.append('0')
+      sb.append(java.lang.Integer.toHexString(v))
+    }
+    sb.toString
 
 /** Live implementation */
 final class MarklitLive(compilerService: CompilerService) extends Marklit:

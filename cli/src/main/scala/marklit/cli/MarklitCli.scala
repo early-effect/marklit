@@ -23,14 +23,20 @@ final case class MarklitOptions(
     classpath3: Option[String],
     dependencies: List[String],
     repositories: List[String],
-    scalaVersion: Option[String]
+    scalaVersion: Option[String],
+    daemon: Boolean,
+    idleTimeoutSeconds: Option[Int],
+    cacheDir: Option[Path] = None
 )
 
 object MarklitCli extends ZIOCliDefault:
 
-  // Define CLI arguments and options
+  // Define CLI arguments and options.
+  // .repeat (not .repeat1) so files are zero-or-more — `marklit --daemon`
+  // with no positional args still parses cleanly. One-shot mode validates
+  // that at least one file is present below.
   val inputFiles: Args[List[Path]] =
-    Args.path("input").repeat1.map(_.toList)
+    Args.path("input").repeat.map(_.toList)
 
   val outputDir: Options[Option[Path]] =
     Options
@@ -95,6 +101,23 @@ object MarklitCli extends ZIOCliDefault:
     Options.text("scala-version").optional ??
       "Default Scala 3 version (overridden by `//> using scala` and per-block `scala=<version>`)"
 
+  val daemon: Options[Boolean] =
+    Options.boolean("daemon") ??
+      "Run as a long-lived daemon that reads JSON-RPC requests from stdin"
+
+  val idleTimeoutSeconds: Options[Option[Int]] =
+    Options.integer("idle-timeout").optional.map(_.map(_.toInt)) ??
+      "Daemon idle timeout in seconds (default: 900). Daemon exits after this much inactivity."
+
+  // --cache-dir: persistent compile-result cache (off by default — pass a
+  // directory to opt in). Build plugins point this at `target/marklit-cache`
+  // so cache lifetime tracks the project's other build artifacts.
+  val cacheDir: Options[Option[Path]] =
+    Options
+      .directory("cache-dir", Exists.Either)
+      .optional ?? "Directory for the on-disk block compile cache (off by default)"
+
+  // zio-cli's `++` flattens via `Zippable`, so the result is a flat 14-tuple.
   val combinedOptions: Options[
     (
         Option[Path],
@@ -107,17 +130,52 @@ object MarklitCli extends ZIOCliDefault:
         Option[String],
         List[String],
         List[String],
-        Option[String]
+        Option[String],
+        Boolean,
+        Option[Int],
+        Option[Path]
     )
   ] =
-    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion
+    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion ++ daemon ++ idleTimeoutSeconds ++ cacheDir
 
   // Main command
   val marklitCommand: Command[MarklitOptions] =
     Command("marklit", combinedOptions, inputFiles)
       .map { case (opts, files) =>
-        val (out, w, v, c, showV, cp, cp2, cp3, deps, repos, sv) = opts
-        MarklitOptions(files, out, w, v, c, showV, cp, cp2, cp3, deps, repos, sv)
+        val (
+          out,
+          w,
+          v,
+          c,
+          showV,
+          cp,
+          cp2,
+          cp3,
+          deps,
+          repos,
+          sv,
+          d,
+          idle,
+          cache
+        ) =
+          opts
+        MarklitOptions(
+          files,
+          out,
+          w,
+          v,
+          c,
+          showV,
+          cp,
+          cp2,
+          cp3,
+          deps,
+          repos,
+          sv,
+          d,
+          idle,
+          cache
+        )
       }
       .withHelp(
         HelpDoc.p("marklit - Typechecked documentation for Scala") +
@@ -135,7 +193,22 @@ object MarklitCli extends ZIOCliDefault:
       summary = text("Typechecked documentation for Scala"),
       command = marklitCommand
     ) { options =>
-      runMarklit(options).as(options)
+      val effect =
+        if options.daemon then
+          Daemon.run(
+            verbose = options.verbose,
+            idleTimeout = options.idleTimeoutSeconds
+              .map(s => Duration.fromSeconds(s.toLong))
+              .getOrElse(Daemon.defaultIdleTimeout)
+          )
+        else if options.inputFiles.isEmpty then
+          ZIO.fail(
+            new RuntimeException(
+              "No input files. Pass one or more markdown files, or use --daemon."
+            )
+          )
+        else runMarklit(options)
+      effect.as(options)
     }
 
   def runMarklit(options: MarklitOptions): ZIO[Any, Throwable, Unit] =
@@ -260,7 +333,8 @@ object MarklitCli extends ZIOCliDefault:
                 fileDefault,
                 fullClasspath,
                 fileScalacOptions,
-                majorClasspaths
+                majorClasspaths,
+                options.cacheDir
               )
             )
             .mapError(e => new RuntimeException(e.pretty))

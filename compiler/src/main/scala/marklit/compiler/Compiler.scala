@@ -33,9 +33,22 @@ trait Compiler:
       context: ScopeContext
   ): IO[MarklitError, CompileResult]
 
-  /** Execute previously compiled code and capture output */
+  /** Execute previously compiled code and capture output. Implementations may
+    * recompile internally if they don't carry the per-block class files around
+    * — prefer [[executeFromDir]] when you already have a
+    * [[CompileResult.classFilesDir]] in hand.
+    */
   def execute(
       code: String,
+      context: ScopeContext
+  ): IO[MarklitError, ExecutionResult]
+
+  /** Execute the wrapper class loaded from [[classFilesDir]] directly, without
+    * recompiling. The directory must be the one returned by a prior successful
+    * [[compile]] (or restored from the cache).
+    */
+  def executeFromDir(
+      classFilesDir: java.nio.file.Path,
       context: ScopeContext
   ): IO[MarklitError, ExecutionResult]
 
@@ -47,7 +60,10 @@ trait Compiler:
     for
       compileResult <- compile(code, context)
       execResult <-
-        if compileResult.success then execute(code, context)
+        if compileResult.success then
+          compileResult.classFilesDir match
+            case Some(d) => executeFromDir(d, context)
+            case None    => execute(code, context)
         else ZIO.succeed(ExecutionResult("", Map.empty))
     yield (compileResult, execResult)
 

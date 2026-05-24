@@ -50,6 +50,32 @@ object MarklitSpec extends ZIOSpecDefault:
             .exists(_.contains("20"))
         )
       },
+      test("output of a block following another block has no marker leak") {
+        // Regression: when compile and execute run as separate adapter calls,
+        // they must agree on the priorCode-replay marker. A fresh marker on
+        // each call would leak the literal "__MARKLIT_<...>__" into the
+        // rendered output of every non-first block.
+        val content =
+          """```scala
+            |val first = 1
+            |println("first")
+            |```
+            |
+            |```scala
+            |println(s"second sees $first")
+            |```
+            |""".stripMargin
+
+        for result <- Marklit.processContent(content, "test.md")
+        yield
+          val outputs = result.processingResult.blockResults
+            .flatMap(_.executionOutput)
+          assertTrue(
+            result.isSuccess,
+            outputs.forall(!_.contains("__MARKLIT_")),
+            outputs.exists(_.contains("second sees 1"))
+          )
+      },
 
       test("processes document with named scopes") {
         val content =
