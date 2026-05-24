@@ -3,6 +3,7 @@ package marklit.renderer
 import marklit.model.*
 import marklit.parser.*
 import marklit.processor.*
+import marklit.results.*
 import zio.test.*
 
 object MarkdownRendererSpec extends ZIOSpecDefault:
@@ -12,9 +13,16 @@ object MarkdownRendererSpec extends ZIOSpecDefault:
   def makeBlock(
       code: String,
       modifiers: Set[Modifier] = Set.empty,
-      scopeConfig: ScopeConfig = ScopeConfig.empty
+      scopeConfig: ScopeConfig = ScopeConfig.empty,
+      showWarningsOverride: Option[Boolean] = None
   ): CodeBlock =
-    CodeBlock(code, modifiers, scopeConfig, testLocation)
+    CodeBlock(
+      code,
+      modifiers,
+      scopeConfig,
+      testLocation,
+      showWarningsOverride
+    )
 
   def makeBlockResult(
       block: CodeBlock,
@@ -291,6 +299,323 @@ object MarkdownRendererSpec extends ZIOSpecDefault:
         val rendered = MarkdownRenderer.render(doc, result, config)
 
         assertTrue(rendered.contains("```text"))
+      }
+    ),
+
+    suite("compile warning rendering")(
+      test("normal block + warnings + global flag on (default) renders warning before output") {
+        val block = makeBlock("oldMethod()")
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val warning = ScalaDiagnostic(
+          DiagnosticSeverity.Warning,
+          "method oldMethod is deprecated",
+          1,
+          1,
+          None
+        )
+        val blockResult = makeBlockResult(
+          block,
+          output = Some("old\n"),
+          diagnostics = List(warning)
+        )
+        val result =
+          DocumentResult(Vector(blockResult), java.time.Duration.ZERO)
+
+        val rendered = MarkdownRenderer.render(doc, result)
+
+        val warningIdx = rendered.indexOf("method oldMethod is deprecated")
+        val outputIdx  = rendered.indexOf("old\n")
+        assertTrue(
+          rendered.contains("warning: method oldMethod is deprecated"),
+          rendered.contains("old"),
+          warningIdx >= 0,
+          outputIdx > warningIdx
+        )
+      },
+      test("normal block + warnings + global flag off omits the warning") {
+        val block = makeBlock("oldMethod()")
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val warning = ScalaDiagnostic(
+          DiagnosticSeverity.Warning,
+          "method oldMethod is deprecated",
+          1,
+          1,
+          None
+        )
+        val blockResult = makeBlockResult(
+          block,
+          output = Some("old\n"),
+          diagnostics = List(warning)
+        )
+        val result =
+          DocumentResult(Vector(blockResult), java.time.Duration.ZERO)
+        val config = RenderConfig(showCompileWarnings = false)
+
+        val rendered = MarkdownRenderer.render(doc, result, config)
+
+        assertTrue(
+          !rendered.contains("method oldMethod is deprecated"),
+          rendered.contains("old")
+        )
+      },
+      test("per-block show-warnings=true overrides global off") {
+        val block = makeBlock(
+          "oldMethod()",
+          showWarningsOverride = Some(true)
+        )
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val warning = ScalaDiagnostic(
+          DiagnosticSeverity.Warning,
+          "method oldMethod is deprecated",
+          1,
+          1,
+          None
+        )
+        val blockResult = makeBlockResult(
+          block,
+          output = Some("old\n"),
+          diagnostics = List(warning)
+        )
+        val result =
+          DocumentResult(Vector(blockResult), java.time.Duration.ZERO)
+        val config = RenderConfig(showCompileWarnings = false)
+
+        val rendered = MarkdownRenderer.render(doc, result, config)
+
+        assertTrue(
+          rendered.contains("method oldMethod is deprecated")
+        )
+      },
+      test("per-block show-warnings=false overrides global on") {
+        val block = makeBlock(
+          "oldMethod()",
+          showWarningsOverride = Some(false)
+        )
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val warning = ScalaDiagnostic(
+          DiagnosticSeverity.Warning,
+          "method oldMethod is deprecated",
+          1,
+          1,
+          None
+        )
+        val blockResult = makeBlockResult(
+          block,
+          output = Some("old\n"),
+          diagnostics = List(warning)
+        )
+        val result =
+          DocumentResult(Vector(blockResult), java.time.Duration.ZERO)
+
+        val rendered = MarkdownRenderer.render(doc, result)
+
+        assertTrue(
+          !rendered.contains("method oldMethod is deprecated"),
+          rendered.contains("old")
+        )
+      },
+      test("warn modifier renders warnings even when both layers are off") {
+        val block = makeBlock(
+          "oldMethod()",
+          modifiers = Set(Modifier.Warn),
+          showWarningsOverride = Some(false)
+        )
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val warning = ScalaDiagnostic(
+          DiagnosticSeverity.Warning,
+          "method oldMethod is deprecated",
+          1,
+          1,
+          None
+        )
+        val blockResult = makeBlockResult(
+          block,
+          output = Some("old\n"),
+          diagnostics = List(warning)
+        )
+        val result =
+          DocumentResult(Vector(blockResult), java.time.Duration.ZERO)
+        val config = RenderConfig(showCompileWarnings = false)
+
+        val rendered = MarkdownRenderer.render(doc, result, config)
+
+        assertTrue(rendered.contains("method oldMethod is deprecated"))
+      },
+      test("normal block with no warnings renders no warning fence") {
+        val block = makeBlock("println(42)")
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val blockResult = makeBlockResult(block, output = Some("42\n"))
+        val result =
+          DocumentResult(Vector(blockResult), java.time.Duration.ZERO)
+
+        val rendered = MarkdownRenderer.render(doc, result)
+
+        // Expect two fenced regions: the scala code block and the output.
+        // Each region opens with ``` and closes with ```. Total = 4 fence
+        // markers; an extra warning fence would push it to 6.
+        val fenceCount = "```".r.findAllIn(rendered).length
+        assertTrue(
+          rendered.contains("42"),
+          !rendered.contains("warning:"),
+          fenceCount == 4
+        )
+      }
+    ),
+
+    suite("merged-path warning rendering")(
+      test("renderMerged renders warnings before output by default") {
+        val block = makeBlock("oldMethod()")
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val locKey =
+          s"test.md:${block.location.startLine}:${block.location.startColumn}"
+        val entry = BlockResultEntry(
+          locationKey = locKey,
+          scalaVersion = "3.7.3",
+          code = block.code,
+          success = true,
+          skipped = false,
+          executionOutput = Some("old\n"),
+          compileErrors = List(
+            DiagnosticEntry(
+              severity = "warning",
+              message = "method oldMethod is deprecated",
+              line = 1,
+              column = 1
+            )
+          ),
+          runtimeError = None
+        )
+        val merged = MergedResults(
+          sourceFile = "test.md",
+          runs = Vector(
+            RunResults(
+              scalaVersion = "3.7.3",
+              sourceFile = "test.md",
+              timestamp = 0L,
+              blocks = Vector(entry)
+            )
+          )
+        )
+
+        val rendered = MarkdownRenderer.renderMerged(doc, merged)
+        val warningIdx = rendered.indexOf("method oldMethod is deprecated")
+        val outputIdx  = rendered.indexOf("old\n")
+        assertTrue(
+          rendered.contains("warning: method oldMethod is deprecated"),
+          warningIdx >= 0,
+          outputIdx > warningIdx
+        )
+      },
+      test("renderMerged omits warnings when global flag is off") {
+        val block = makeBlock("oldMethod()")
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val locKey =
+          s"test.md:${block.location.startLine}:${block.location.startColumn}"
+        val entry = BlockResultEntry(
+          locationKey = locKey,
+          scalaVersion = "3.7.3",
+          code = block.code,
+          success = true,
+          skipped = false,
+          executionOutput = Some("old\n"),
+          compileErrors = List(
+            DiagnosticEntry(
+              severity = "warning",
+              message = "method oldMethod is deprecated",
+              line = 1,
+              column = 1
+            )
+          ),
+          runtimeError = None
+        )
+        val merged = MergedResults(
+          sourceFile = "test.md",
+          runs = Vector(
+            RunResults(
+              scalaVersion = "3.7.3",
+              sourceFile = "test.md",
+              timestamp = 0L,
+              blocks = Vector(entry)
+            )
+          )
+        )
+        val config = RenderConfig(showCompileWarnings = false)
+
+        val rendered = MarkdownRenderer.renderMerged(doc, merged, config)
+        assertTrue(
+          !rendered.contains("method oldMethod is deprecated"),
+          rendered.contains("old")
+        )
+      },
+      test(
+        "renderMerged honors per-block show-warnings=true override against global off"
+      ) {
+        val block = makeBlock(
+          "oldMethod()",
+          showWarningsOverride = Some(true)
+        )
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val locKey =
+          s"test.md:${block.location.startLine}:${block.location.startColumn}"
+        val entry = BlockResultEntry(
+          locationKey = locKey,
+          scalaVersion = "3.7.3",
+          code = block.code,
+          success = true,
+          skipped = false,
+          executionOutput = Some("old\n"),
+          compileErrors = List(
+            DiagnosticEntry(
+              severity = "warning",
+              message = "method oldMethod is deprecated",
+              line = 1,
+              column = 1
+            )
+          ),
+          runtimeError = None
+        )
+        val merged = MergedResults(
+          sourceFile = "test.md",
+          runs = Vector(
+            RunResults(
+              scalaVersion = "3.7.3",
+              sourceFile = "test.md",
+              timestamp = 0L,
+              blocks = Vector(entry)
+            )
+          )
+        )
+        val config = RenderConfig(showCompileWarnings = false)
+
+        val rendered = MarkdownRenderer.renderMerged(doc, merged, config)
+        assertTrue(rendered.contains("method oldMethod is deprecated"))
       }
     )
   )

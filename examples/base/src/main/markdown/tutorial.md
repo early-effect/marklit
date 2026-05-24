@@ -1,19 +1,28 @@
 # Marklit Tutorial
 
-This is a comprehensive example demonstrating all marklit features.
+A tour of marklit's single-version, single-scope features. Once you're
+comfortable here, follow the cross-links to the topic-specific docs:
+- [using-deps.md](using-deps.md) — external libraries.
+- [using-directives.md](using-directives.md) — compiler options,
+  Scala version, custom resolvers.
+- [scopes-and-versions.md](scopes-and-versions.md) — sharing state
+  across blocks; running blocks under different Scala versions.
+- [zio-example.md](zio-example.md) — `marklit:zio-app` recipe.
 
-## Basic Code Execution
+## Basic code execution
 
-Code blocks are compiled and executed, with output displayed:
+Code blocks are compiled and executed; their output is rendered below
+the source:
 
 ```scala
 val greeting = "Hello, Marklit!"
 println(greeting)
 ```
 
-## Sequential Blocks Share Context
+## Sequential blocks share context
 
-Blocks accumulate in the same scope, so you can build up definitions:
+Within the default (unnamed) scope, definitions accumulate across blocks.
+You can build up state top-to-bottom:
 
 ```scala
 case class Person(name: String, age: Int)
@@ -24,167 +33,110 @@ val alice = Person("Alice", 30)
 println(s"${alice.name} is ${alice.age} years old")
 ```
 
-## Silent Modifier
+For *named* scopes (which give you isolation and explicit reuse via
+`id=` / `extends=`), see
+[scopes-and-versions.md](scopes-and-versions.md).
 
-The `silent` modifier compiles and executes code but hides the output:
+## `silent`: hide output, keep code
+
+`marklit:silent` compiles and executes, shows the source, but hides the
+runtime output. Useful when the output is noisy and you only care about
+the code shape:
 
 ```scala marklit:silent
 val secretValue = 42
 println("This output is hidden")
 ```
 
-You can still use values defined in silent blocks:
+The value is still in scope downstream:
 
 ```scala
 println(s"The secret is: $secretValue")
 ```
 
-## Invisible Modifier
+## `invisible`: hide everything
 
-The `invisible` modifier hides both the code and output - useful for setup:
+`marklit:invisible` hides both the source and the output. Use for setup
+that the reader shouldn't be distracted by:
 
 ```scala marklit:invisible
 val setupData = List("configured", "hidden", "setup")
 ```
 
-The invisible block set up `setupData` which we can use:
+The invisible block defined `setupData`, which we use here:
 
 ```scala
 println(setupData.mkString(", "))
 ```
 
-## Compile-Only Modifier
+## `compile-only`: typecheck without running
 
-The `compile-only` modifier verifies code compiles but doesn't execute it:
+`marklit:compile-only` verifies the code compiles but skips execution.
+Use when running the code would be slow, side-effecting, or
+non-deterministic:
 
 ```scala marklit:compile-only
 def expensiveOperation(): Unit =
-  Thread.sleep(10000) // Would take 10 seconds if executed
+  Thread.sleep(10000) // would take 10 seconds if executed
   println("Done!")
 ```
 
-## Fail Modifier (Expected Compilation Errors)
+## `fail`: assert a compile error
 
-The `fail` modifier asserts that code fails to compile - great for showing what NOT to do:
+`marklit:fail` asserts that the code *fails* to compile. The rendered
+output shows the expected error — great for documenting "what NOT to
+do":
 
 ```scala marklit:fail
-val x: String = 42  // Type mismatch: Int vs String
+val x: String = 42  // type mismatch: Int vs String
 ```
 
-## Warn Modifier (Expected Compilation Warnings)
+If the block surprisingly compiles, marklit reports the file as failed.
 
-The `warn` modifier asserts that code produces compilation warnings:
+## `warn`: assert and display a compile warning
+
+`marklit:warn` plays a dual role:
+1. It asserts the block produces at least one compile warning.
+2. It always renders those warnings in the output, regardless of the
+   global `--show-warnings` / `marklitShowWarnings` setting.
 
 ```scala marklit:warn
 @deprecated("use newMethod instead", "1.0")
 def oldMethod(): Unit = ()
 
-oldMethod()  // This should produce a deprecation warning
+oldMethod()  // produces a deprecation warning
 ```
 
-## Crash Modifier (Expected Runtime Exceptions)
+For controlling warning display on *non-warn* blocks, see the
+`show-warnings=true|false` info-string option in
+[using-directives.md](using-directives.md).
 
-The `crash` modifier asserts that code throws an exception at runtime:
+## `crash`: assert a runtime exception
+
+`marklit:crash` asserts that running the block throws an exception. The
+exception type and message are rendered:
 
 ```scala marklit:crash
 val crashList = List(1, 2, 3)
 crashList(10)  // IndexOutOfBoundsException
 ```
 
-## Passthrough Modifier
+## `passthrough`: render verbatim
 
-The `passthrough` modifier renders content as-is without processing:
+`marklit:passthrough` renders the block as-is, no compilation, no
+execution. The fence loses its `scala` language tag in the output, so
+this is a good way to keep example snippets that aren't valid Scala:
 
 ```scala marklit:passthrough
 // This is not compiled or executed
 // It's rendered exactly as written
-imaginaryFunction()  // No error even though this doesn't exist
+imaginaryFunction()  // no error even though this doesn't exist
 ```
 
-## Named Scopes
+## Scala 3 indentation syntax
 
-Use `id=` to create isolated scopes:
-
-```scala marklit:id=math
-def square(x: Int): Int = x * x
-```
-
-```scala marklit:id=strings
-def repeat(s: String, n: Int): String = s * n
-```
-
-These scopes are independent - `square` is not visible in the `strings` scope.
-
-## Scope Inheritance
-
-Use `extends=` to inherit from another scope:
-
-```scala marklit:id=base
-val baseValue = 100
-```
-
-```scala marklit:extends=base
-val derived = baseValue * 2
-println(s"Derived: $derived")
-```
-
-## Appending to Scopes
-
-Use `append` with `extends=` to add to an existing scope:
-
-```scala marklit:id=growing
-var items = List("a")
-```
-
-```scala marklit:extends=growing,append
-items = items :+ "b"
-```
-
-```scala marklit:extends=growing,append
-items = items :+ "c"
-println(items)  // List(a, b, c)
-```
-
-## Scala Version Filtering
-
-Use `scala=` to run blocks only on specific Scala versions:
-
-### Scala 3 Only
-
-```scala marklit:scala=3
-// Scala 3 enums
-enum Status:
-  case Active, Inactive, Pending
-
-println(Status.Active)
-```
-
-### Scala 2 Only
-
-```scala marklit:scala=2
-// Scala 2 style
-sealed trait Status2
-case object Active2 extends Status2
-case object Inactive2 extends Status2
-
-println(Active2)
-```
-
-## Combining Modifiers
-
-You can combine multiple modifiers:
-
-```scala marklit:silent,id=combined
-val combinedSetup = "combined example"
-```
-
-```scala marklit:extends=combined
-println(s"Using: $combinedSetup")
-```
-
-## Scala 3 Indentation Syntax
-
-Marklit properly handles Scala 3's indentation-sensitive syntax:
+marklit handles Scala 3's indentation-sensitive syntax, including
+nested `if`/`else`:
 
 ```scala
 def greet(name: String): Unit =
@@ -197,31 +149,12 @@ def greet(name: String): Unit =
 greet("World")
 ```
 
-## Working with Collections
+## Where to next
 
-```scala marklit:id=collections
-val numbers = (1 to 5).toList
-
-// Map, filter, reduce
-val result = numbers
-  .map(_ * 2)
-  .filter(_ > 4)
-  .reduce(_ + _)
-
-println(s"Result: $result")
-```
-
-## Pattern Matching
-
-```scala marklit:id=patterns
-def describe(x: Any): String = x match
-  case i: Int if i > 0 => s"positive int: $i"
-  case s: String       => s"string of length ${s.length}"
-  case _               => "something else"
-
-println(describe(42))
-println(describe("hello"))
-println(describe(3.14))
-```
-
-That's the complete marklit feature set!
+- **Want to use a library?** [using-deps.md](using-deps.md)
+- **Want to set scalac options or pin a Scala version?**
+  [using-directives.md](using-directives.md)
+- **Want blocks to share or isolate state, or run different blocks
+  under different Scala versions?**
+  [scopes-and-versions.md](scopes-and-versions.md)
+- **Want a worked ZIO recipe?** [zio-example.md](zio-example.md)

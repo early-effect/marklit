@@ -37,6 +37,12 @@ trait MarklitModule extends ScalaModule {
   def marklitShowVersion: T[Boolean] = true
 
   /**
+   * Whether to render compile warnings in output code blocks.
+   * Defaults to true.
+   */
+  def marklitShowWarnings: T[Boolean] = true
+
+  /**
    * Enable verbose output from marklit.
    * Defaults to false.
    */
@@ -197,6 +203,7 @@ trait MarklitModule extends ScalaModule {
       .mapValues(_.map(_.path.toString))
       .toMap
     val showVersion = marklitShowVersion()
+    val showWarnings = marklitShowWarnings()
     val verbose = marklitVerbose()
     val scalaVer = scalaVersion()
     val cacheDirOpt = marklitCacheDir().map(_.path.toString)
@@ -222,6 +229,7 @@ trait MarklitModule extends ScalaModule {
           majorClasspaths = majorCps,
           scalaVer = scalaVer,
           showVersion = showVersion,
+          showWarnings = showWarnings,
           verbose = verbose,
           check = false,
           daemon = daemonOpt,
@@ -268,6 +276,7 @@ trait MarklitModule extends ScalaModule {
           majorClasspaths = majorCps,
           scalaVer = scalaVer,
           showVersion = true,
+          showWarnings = true,
           verbose = verbose,
           check = true,
           daemon = daemonOpt,
@@ -292,6 +301,7 @@ trait MarklitModule extends ScalaModule {
       majorClasspaths: Map[String, Seq[String]],
       scalaVer: String,
       showVersion: Boolean,
+      showWarnings: Boolean,
       verbose: Boolean,
       check: Boolean,
       daemon: Option[MarklitDaemonClient],
@@ -313,6 +323,7 @@ trait MarklitModule extends ScalaModule {
             verbose = verbose,
             check = check,
             showVersionInOutput = showVersion,
+            showWarningsInOutput = showWarnings,
             classpath = cpStr,
             classpath2 = cpFor("2"),
             classpath3 = cpFor("3"),
@@ -341,6 +352,7 @@ trait MarklitModule extends ScalaModule {
               majorClasspaths,
               scalaVer,
               showVersion,
+              showWarnings,
               verbose,
               check,
               taskLabel,
@@ -357,6 +369,7 @@ trait MarklitModule extends ScalaModule {
           majorClasspaths,
           scalaVer,
           showVersion,
+          showWarnings,
           verbose,
           check,
           taskLabel,
@@ -374,6 +387,7 @@ trait MarklitModule extends ScalaModule {
       majorClasspaths: Map[String, Seq[String]],
       scalaVer: String,
       showVersion: Boolean,
+      showWarnings: Boolean,
       verbose: Boolean,
       check: Boolean,
       taskLabel: String,
@@ -409,6 +423,10 @@ trait MarklitModule extends ScalaModule {
       args += d
     }
     if (outputDir.isDefined && !showVersion) args += "--no-show-version"
+    if (outputDir.isDefined) {
+      args += "--show-warnings"
+      args += showWarnings.toString
+    }
     if (verbose) args += "--verbose"
     args ++= sources.map(_.toString)
 

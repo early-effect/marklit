@@ -64,8 +64,16 @@ object InfoStringParser:
   case class ParsedInfoString(
       isScalaBlock: Boolean,
       modifiers: Set[Modifier],
-      scopeConfig: ScopeConfig
+      scopeConfig: ScopeConfig,
+      showWarningsOverride: Option[Boolean] = None
   )
+
+  private def parseBool(s: String): Option[Boolean] =
+    s.toLowerCase match
+      case "true"  => Some(true)
+      case "false" => Some(false)
+      case _       => None
+
 
   /** Parse an info string into modifiers and scope config */
   def parse(info: String): ParsedInfoString =
@@ -79,6 +87,7 @@ object InfoStringParser:
         var extendsScope: Option[String] = None
         var append: Boolean = false
         var scalaVersion: Option[String] = None
+        var showWarningsOverride: Option[Boolean] = None
 
         items.foreach {
           case Left(name) =>
@@ -89,17 +98,18 @@ object InfoStringParser:
           case Right((key, value)) =>
             // Key=value pair
             key match
-              case "id"      => id = Some(value)
-              case "extends" => extendsScope = Some(value)
-              case "scala"   => scalaVersion = Some(value)
-              case _         => () // Ignore unknown keys
+              case "id"            => id = Some(value)
+              case "extends"       => extendsScope = Some(value)
+              case "scala"         => scalaVersion = Some(value)
+              case "show-warnings" => showWarningsOverride = parseBool(value)
+              case _               => () // Ignore unknown keys
         }
 
         val scopeConfig =
           ScopeConfig(id, extendsScope, append, scalaVersion).validate
             .getOrElse(ScopeConfig.empty)
 
-        ParsedInfoString(true, modifiers, scopeConfig)
+        ParsedInfoString(true, modifiers, scopeConfig, showWarningsOverride)
 
       case _: Parsed.Failure =>
         // Parse failure - treat as non-scala passthrough

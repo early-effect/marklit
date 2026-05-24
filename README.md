@@ -87,7 +87,7 @@ println(scala.util.Properties.versionNumberString)  // "2.13.16" actually
 
 The `marklit-cli` jar is built once and bundles only thin shims against the dotc (3.x) and nsc (2.13) compiler APIs. Every per-version classloader gets a fresh copy of the *user-requested* compiler and its matching standard library — so user code is always compiled and run by the version they asked for, never by the bundled shim's version.
 
-A worked example with five different versions in one file lives in [examples/base/src/main/markdown/multi-version.md](examples/base/src/main/markdown/multi-version.md).
+A worked example with five different versions in one file lives in [examples/base/src/main/markdown/scopes-and-versions.md](examples/base/src/main/markdown/scopes-and-versions.md).
 
 ### Cross-built dependencies, the right way
 

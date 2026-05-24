@@ -17,6 +17,7 @@ private[sbt] object MarklitJson {
       verbose: Boolean,
       check: Boolean,
       showVersionInOutput: Boolean,
+      showWarningsInOutput: Boolean,
       classpath: Option[String],
       classpath2: Option[String],
       classpath3: Option[String],
@@ -34,6 +35,8 @@ private[sbt] object MarklitJson {
     appendField(params, "check", bool(check))
     params.append(",")
     appendField(params, "showVersionInOutput", bool(showVersionInOutput))
+    params.append(",")
+    appendField(params, "showWarningsInOutput", bool(showWarningsInOutput))
     if (classpath.isDefined) {
       params.append(",")
       appendField(params, "classpath", str(classpath.get))

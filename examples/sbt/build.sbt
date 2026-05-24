@@ -1,7 +1,7 @@
 // Multi-module example demonstrating marklit against a cross-built core
 // library. The `core` module publishes the same `Greeter` API on Scala 2.13
 // and Scala 3, with a per-major code path that uses version-specific
-// language features. The `docs` module runs marklit; multi-version.md
+// language features. The `docs` module runs marklit; scopes-and-versions.md
 // references `Greeter` from inside both 2.13 and 3.x code blocks.
 //
 // The `core` source tree lives in ../base/core/src so the Mill example

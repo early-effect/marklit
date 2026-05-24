@@ -255,6 +255,42 @@ object MarkdownParserSpec extends ZIOSpecDefault:
           doc.codeBlocks.head.scopeConfig.id == Some("setup"),
           doc.codeBlocks.head.scopeConfig.scalaVersion == Some("3")
         )
+      },
+
+      test("threads show-warnings=true into the code block") {
+        val content =
+          """```scala marklit:show-warnings=true
+            |val x = 1
+            |```
+            |""".stripMargin
+        for doc <- MarkdownParser.parse(content, "test.md")
+        yield assertTrue(
+          doc.codeBlocks.head.showWarningsOverride == Some(true)
+        )
+      },
+
+      test("threads show-warnings=false into the code block") {
+        val content =
+          """```scala marklit:show-warnings=false
+            |val x = 1
+            |```
+            |""".stripMargin
+        for doc <- MarkdownParser.parse(content, "test.md")
+        yield assertTrue(
+          doc.codeBlocks.head.showWarningsOverride == Some(false)
+        )
+      },
+
+      test("absent show-warnings leaves override as None on the code block") {
+        val content =
+          """```scala
+            |val x = 1
+            |```
+            |""".stripMargin
+        for doc <- MarkdownParser.parse(content, "test.md")
+        yield assertTrue(
+          doc.codeBlocks.head.showWarningsOverride == None
+        )
       }
     ),
 

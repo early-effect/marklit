@@ -5,8 +5,16 @@ final case class CodeBlock(
     code: String,
     modifiers: Set[Modifier],
     scopeConfig: ScopeConfig,
-    location: Location
+    location: Location,
+    showWarningsOverride: Option[Boolean] = None
 ):
+  /** Whether compile warnings should be rendered for this block, given the
+    * caller's default. Per-block override (from a `show-warnings=true|false`
+    * info-string option) wins over the default.
+    */
+  def showWarnings(default: Boolean): Boolean =
+    showWarningsOverride.getOrElse(default)
+
   /** Whether this block should be executed */
   def shouldExecute: Boolean =
     !modifiers.contains(Modifier.CompileOnly) &&

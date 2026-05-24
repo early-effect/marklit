@@ -50,6 +50,7 @@ object DaemonProtocol:
       verbose: Boolean = false,
       check: Boolean = false,
       showVersionInOutput: Boolean = true,
+      showWarningsInOutput: Boolean = true,
       classpath: Option[String] = None,
       classpath2: Option[String] = None,
       classpath3: Option[String] = None,

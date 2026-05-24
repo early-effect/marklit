@@ -58,7 +58,8 @@ object MarkdownParser:
               code = code.stripSuffix("\n"),
               modifiers = parsed.modifiers,
               scopeConfig = parsed.scopeConfig,
-              location = Location(sourceFile, line, col)
+              location = Location(sourceFile, line, col),
+              showWarningsOverride = parsed.showWarningsOverride
             )
           )
         }

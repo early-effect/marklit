@@ -18,6 +18,7 @@ final case class MarklitOptions(
     verbose: Boolean,
     check: Boolean,
     showVersionInOutput: Boolean,
+    showWarningsInOutput: Boolean,
     classpath: Option[String],
     classpath2: Option[String],
     classpath3: Option[String],
@@ -65,6 +66,26 @@ object MarklitCli extends ZIOCliDefault:
     Options
       .boolean("no-show-version")
       .map(!_) ?? "Suppress Scala version annotation in output blocks"
+
+  // --show-warnings=true|false controls whether compile warnings are rendered
+  // in output blocks (default true). Per-block `show-warnings=true|false` info
+  // string options override this for individual blocks. Accepts the values
+  // recognized by zio-cli's PrimType.Bool (true/false/yes/no/on/off/1/0).
+  private def parseBool(s: String): Option[Boolean] =
+    s.toLowerCase match
+      case "true" | "yes" | "on" | "1"   => Some(true)
+      case "false" | "no" | "off" | "0"  => Some(false)
+      case _                             => None
+
+  val showWarningsInOutput: Options[Boolean] =
+    Options
+      .text("show-warnings")
+      .optional
+      .map {
+        case Some(s) => parseBool(s).getOrElse(true)
+        case None    => true
+      } ?? "Render compile warnings in output blocks (true/false; default true)"
+
 
   val classpath: Options[Option[String]] =
     Options.text("classpath").alias("cp").optional ??
@@ -117,10 +138,11 @@ object MarklitCli extends ZIOCliDefault:
       .directory("cache-dir", Exists.Either)
       .optional ?? "Directory for the on-disk block compile cache (off by default)"
 
-  // zio-cli's `++` flattens via `Zippable`, so the result is a flat 14-tuple.
+  // zio-cli's `++` flattens via `Zippable`, so the result is a flat 15-tuple.
   val combinedOptions: Options[
     (
         Option[Path],
+        Boolean,
         Boolean,
         Boolean,
         Boolean,
@@ -136,7 +158,7 @@ object MarklitCli extends ZIOCliDefault:
         Option[Path]
     )
   ] =
-    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion ++ daemon ++ idleTimeoutSeconds ++ cacheDir
+    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ showWarningsInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion ++ daemon ++ idleTimeoutSeconds ++ cacheDir
 
   // Main command
   val marklitCommand: Command[MarklitOptions] =
@@ -148,6 +170,7 @@ object MarklitCli extends ZIOCliDefault:
           v,
           c,
           showV,
+          showW,
           cp,
           cp2,
           cp3,
@@ -166,6 +189,7 @@ object MarklitCli extends ZIOCliDefault:
           v,
           c,
           showV,
+          showW,
           cp,
           cp2,
           cp3,
@@ -384,7 +408,8 @@ object MarklitCli extends ZIOCliDefault:
           results.toVector,
           options.outputDir.get,
           options.verbose,
-          options.showVersionInOutput
+          options.showVersionInOutput,
+          options.showWarningsInOutput
         )
       )
     yield ()
@@ -394,13 +419,17 @@ object MarklitCli extends ZIOCliDefault:
       results: Vector[MarklitResult],
       outputDir: Path,
       verbose: Boolean,
-      showVersion: Boolean
+      showVersion: Boolean,
+      showWarnings: Boolean
   ): ZIO[Any, Throwable, Unit] =
     for
       _ <- ZIO.attempt(Files.createDirectories(outputDir))
       _ <- ZIO.foreachDiscard(results) { result =>
         val outputPath = outputDir.resolve(result.sourceFile.getFileName)
-        val config = RenderConfig(showScalaVersion = showVersion)
+        val config = RenderConfig(
+          showScalaVersion = showVersion,
+          showCompileWarnings = showWarnings
+        )
         for
           rendered <- ZIO.succeed(
             MarkdownRenderer.render(

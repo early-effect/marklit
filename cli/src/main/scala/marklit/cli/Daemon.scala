@@ -203,6 +203,7 @@ object Daemon:
       verbose = params.verbose,
       check = params.check,
       showVersionInOutput = params.showVersionInOutput,
+      showWarningsInOutput = params.showWarningsInOutput,
       classpath = params.classpath,
       classpath2 = params.classpath2,
       classpath3 = params.classpath3,

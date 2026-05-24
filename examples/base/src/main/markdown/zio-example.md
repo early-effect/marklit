@@ -1,6 +1,9 @@
 # ZIO Service Pattern Example
 
-This example demonstrates using ZIO with the service pattern (ZLayer) in marklit code blocks.
+A worked recipe: using ZIO's service pattern (ZLayer) inside marklit code
+blocks via the `marklit:zio-app` modifier and named scopes
+(`id=`/`extends=`). For the scope mechanics themselves, see
+[scopes-and-versions.md](scopes-and-versions.md).
 
 ## Basic ZIO Effect
 
@@ -150,3 +153,12 @@ for
   _       <- Console.printLine(s"Final value: $result")
 yield ()
 ```
+
+## See also
+
+- [tutorial.md](tutorial.md) — modifier basics (`silent`, `invisible`,
+  `compile-only`, `fail`, `warn`, `crash`, `passthrough`).
+- [scopes-and-versions.md](scopes-and-versions.md) — how `id=` and
+  `extends=` work; multi-version compilation.
+- [using-deps.md](using-deps.md) — declaring dependencies via
+  `//> using dep`.

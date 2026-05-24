@@ -13,6 +13,8 @@ object MarklitPlugin extends AutoPlugin {
       settingKey[File]("Directory for generated markdown output")
     val marklitShowVersion =
       settingKey[Boolean]("Show Scala version in output blocks")
+    val marklitShowWarnings =
+      settingKey[Boolean]("Render compile warnings in output blocks")
     val marklitVerbose = settingKey[Boolean]("Enable verbose output")
 
     // Daemon settings — when enabled, marklit tasks talk to a long-lived
@@ -82,6 +84,19 @@ object MarklitPlugin extends AutoPlugin {
 
     jarFile
   }
+
+  /** Filter scala-library / scala3-library jars (and the bundled marklit-cli)
+    * out of a forwarded classpath. The CLI resolves the per-version stdlib via
+    * Coursier; leaving the host project's stdlib on the classpath leaks
+    * 3.8.x-bin TASTy into 3.7.x compile contexts.
+    */
+  private def filterForwardedClasspath(cp: Seq[File]): Seq[File] =
+    cp.filterNot { f =>
+      val name = f.getName
+      name.contains("marklit-cli") ||
+      name.startsWith("scala-library") ||
+      name.startsWith("scala3-library")
+    }
 
   /** Resolve a dep project's per-cross-version classes directory. sbt's
     * cross-build target naming is inconsistent: 2.13 → "scala-2.13" (binary
@@ -265,6 +280,7 @@ object MarklitPlugin extends AutoPlugin {
     marklitSourceDirectory := (Compile / sourceDirectory).value / "markdown",
     marklitTargetDirectory := target.value / "marklit",
     marklitShowVersion := true,
+    marklitShowWarnings := true,
     marklitVerbose := false,
     marklitDaemon := true,
     marklitDaemonIdleTimeout := 900L,
@@ -277,7 +293,7 @@ object MarklitPlugin extends AutoPlugin {
       val sourceDir = marklitSourceDirectory.value
       val verbose = marklitVerbose.value
       // Get the project's full classpath (includes dependencies)
-      val cp = (Compile / fullClasspath).value.files
+      val cp = filterForwardedClasspath((Compile / fullClasspath).value.files)
       val scalaVer = scalaVersion.value
       val majorCps = marklitMajorClasspaths.value
       val cacheDir = marklitCacheDirectory.value
@@ -328,9 +344,10 @@ object MarklitPlugin extends AutoPlugin {
       val sourceDir = marklitSourceDirectory.value
       val targetDir = marklitTargetDirectory.value
       val showVersion = marklitShowVersion.value
+      val showWarnings = marklitShowWarnings.value
       val verbose = marklitVerbose.value
       // Get the project's full classpath (includes dependencies)
-      val cp = (Compile / fullClasspath).value.files
+      val cp = filterForwardedClasspath((Compile / fullClasspath).value.files)
       val scalaVer = scalaVersion.value
       val majorCps = marklitMajorClasspaths.value
       val cacheDir = marklitCacheDirectory.value
@@ -365,6 +382,7 @@ object MarklitPlugin extends AutoPlugin {
             cp,
             scalaVer,
             showVersion,
+            showWarnings,
             verbose,
             log,
             majorCps,

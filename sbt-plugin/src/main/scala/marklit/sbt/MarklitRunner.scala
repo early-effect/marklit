@@ -68,6 +68,7 @@ object MarklitRunner {
         classpath = classpath,
         scalaVersion = scalaVersion,
         showVersion = true,
+        showWarnings = true,
         check = true,
         verbose = verbose,
         log = log,
@@ -95,6 +96,7 @@ object MarklitRunner {
       classpath: Seq[File],
       scalaVersion: String,
       showVersion: Boolean,
+      showWarnings: Boolean,
       verbose: Boolean,
       log: Logger,
       majorClasspaths: Map[String, Seq[File]] = Map.empty,
@@ -109,6 +111,7 @@ object MarklitRunner {
         classpath = classpath,
         scalaVersion = scalaVersion,
         showVersion = showVersion,
+        showWarnings = showWarnings,
         check = false,
         verbose = verbose,
         log = log,
@@ -123,6 +126,7 @@ object MarklitRunner {
         majorClasspathArgs(majorClasspaths) ++
         cacheDirArg(cacheDir) ++
         (if (showVersion) Seq.empty else Seq("--no-show-version")) ++
+        Seq("--show-warnings", showWarnings.toString) ++
         (if (verbose) Seq("--verbose") else Seq.empty) ++
         sources.map(_.getAbsolutePath)
       run(marklitJar, args, log)
@@ -140,6 +144,7 @@ object MarklitRunner {
       classpath: Seq[File],
       scalaVersion: String,
       showVersion: Boolean,
+      showWarnings: Boolean,
       check: Boolean,
       verbose: Boolean,
       log: Logger,
@@ -157,6 +162,7 @@ object MarklitRunner {
         verbose = verbose,
         check = check,
         showVersionInOutput = showVersion,
+        showWarningsInOutput = showWarnings,
         classpath = cpStr,
         classpath2 = cp2,
         classpath3 = cp3,
@@ -179,6 +185,7 @@ object MarklitRunner {
           classpathArg("--classpath", classpath) ++
           majorClasspathArgs(majorClasspaths) ++
           cacheDirArg(cacheDir) ++
+          Seq("--show-warnings", showWarnings.toString) ++
           (if (verbose) Seq("--verbose") else Seq.empty) ++
           sources.map(_.getAbsolutePath)
         val args = outputDir match {

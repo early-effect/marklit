@@ -10,6 +10,7 @@ final case class RenderConfig(
     showLineNumbers: Boolean = false,
     showCompileErrors: Boolean = true,
     showRuntimeErrors: Boolean = true,
+    showCompileWarnings: Boolean = true,
     errorPrefix: String = "// ",
     outputFenceLanguage: String = "", // empty = plain code block
     includeSourceComments: Boolean = false,
@@ -124,8 +125,15 @@ object MarkdownRenderer:
           br.compileResult.foreach { cr =>
             renderDiagnostics(sb, cr.errors, config, ver)
           }
-        // Handle execution output
+        // Handle execution output (and compile warnings if enabled)
         else
+          if block.showWarnings(config.showCompileWarnings) then
+            br.compileResult.foreach { cr =>
+              val warnings =
+                cr.diagnostics.filter(_.severity == DiagnosticSeverity.Warning)
+              if warnings.nonEmpty then
+                renderDiagnostics(sb, warnings, config, ver)
+            }
           br.executionOutput.filter(_.nonEmpty).foreach { output =>
             renderOutput(sb, output, config, ver)
           }
@@ -237,6 +245,7 @@ object MarkdownRenderer:
 
     // Render output/errors from each Scala version if should be shown
     if block.showOutput && results.nonEmpty then
+      val effectiveShowWarnings = block.showWarnings(config.showCompileWarnings)
       results.foreach { entry =>
         val versionTag =
           if config.showScalaVersion then Some(entry.scalaVersion) else None
@@ -248,12 +257,17 @@ object MarkdownRenderer:
         then
           renderDiagnosticsFromEntries(
             sb,
-            entry.compileErrors,
+            entry.compileErrors.filter(_.severity == "error"),
             config,
             versionTag
           )
-        // Handle execution output
+        // Handle execution output (and compile warnings if enabled)
         else
+          if effectiveShowWarnings then
+            val warnings =
+              entry.compileErrors.filter(_.severity == "warning")
+            if warnings.nonEmpty then
+              renderDiagnosticsFromEntries(sb, warnings, config, versionTag)
           entry.executionOutput.filter(_.nonEmpty).foreach { output =>
             renderOutput(sb, output, config, versionTag)
           }
