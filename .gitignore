@@ -35,3 +35,5 @@ metals.sbt
 .claude/
 .mcp.json
 out/
+.scalex/
+
