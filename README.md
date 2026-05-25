@@ -145,6 +145,35 @@ Examples: `silent,id=setup`, `fail,extends=errors`, `zio-app,scala=3.8.2`. `id` 
 
 See [examples/base/src/main/markdown/tutorial.md](examples/base/src/main/markdown/tutorial.md) for a worked example of every feature.
 
+## How marklit reads your Markdown
+
+Marklit is **not** a full Markdown processor. It scans for fenced code blocks and treats everything else as opaque text — headings, lists, tables, links, HTML, your blank lines and trailing whitespace all flow through verbatim. The renderer's job is to splice executed output into the right places, not to rewrite your prose.
+
+Fence detection follows [CommonMark](https://spec.commonmark.org/0.31.2/#fenced-code-blocks):
+
+- Opener may be indented **0–3 spaces**. 4+ leading spaces is an indented code block, not a fence.
+- Fence character is `` ` `` or `~`, repeated **at least 3 times**.
+- The closing fence must use the **same character** as the opener and be **at least as long**. So a fence opened with ```` ```` ```` only closes on a line of 4+ backticks — inner ``` ``` ``` lines are content.
+- The closing line may have trailing spaces/tabs but **no other content** after the fence.
+- Backtick-fence info strings may not contain `` ` ``.
+- An **unterminated fence is implicitly closed at EOF** — your file doesn't have to end with a closing fence.
+- Content lines have up to *opener-indent* leading spaces stripped, so an indented opener doesn't smuggle indentation into your code.
+- `\r\n` and lone `\r` line endings are normalized to `\n` before parsing.
+
+The info string identifies a Scala block by the literal token `scala` (case-insensitive) followed by a word boundary, so `scala-cli`, `scalafmt`, and `scalajs` blocks are **not** treated as Scala — they pass through unchanged. The token list after the language is the modifiers (see [Modifiers](#modifiers)); both `marklit:` and `mdoc:` prefixes are accepted.
+
+### Fences inside blockquotes are rejected
+
+Marklit refuses to extract Scala code from inside a `>` blockquote:
+
+````markdown
+> ```scala
+> val x = 1
+> ```
+````
+
+This produces a parse error directing you to move the fence outside the blockquote (or strip the `>` prefix from the fence and its content lines). The reason is that splicing executed output back into a blockquote would silently break the quote structure — better to fail loudly. Non-Scala fences inside blockquotes (e.g. `> ```bash`) are unaffected and pass through.
+
 ## Scopes — explicit by default
 
 By default each block gets a fresh anonymous scope. Code blocks do **not** share state unless you tell them to. This inverts mdoc's default and is closer to mdoc's `:reset` semantics out of the box. The reasoning: most documentation snippets are *examples* that should stand alone; sharing state is the exception, not the rule.

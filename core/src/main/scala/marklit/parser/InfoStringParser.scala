@@ -47,15 +47,25 @@ object InfoStringParser:
   private def modifierList[$: P]: P[Seq[Either[String, (String, String)]]] =
     P(modifierOrOption.rep(sep = ws ~ "," ~ ws))
 
+  // The language token must be exactly "scala" (case-insensitive), bounded so
+  // that "scala-cli", "scalafmt", "scalajs" etc. don't match. The boundary is:
+  // end of input, or any character that is NOT an identifier-continuation
+  // char (letter, digit, '_', '-', '.').
+  private def isLangContinuation(c: Char): Boolean =
+    c.isLetterOrDigit || c == '_' || c == '-' || c == '.'
+
+  private def scalaLang[$: P]: P[Unit] =
+    P(StringInIgnoreCase("scala") ~ !CharPred(isLangContinuation))
+
   // Full info string: "scala" followed by optional "marklit:" or "mdoc:" and modifiers
   // We prefer "marklit:" but support "mdoc:" for compatibility
   private def infoString[$: P]
       : P[(Boolean, Seq[Either[String, (String, String)]])] =
     P(
       ws ~
-        (StringInIgnoreCase("scala").! ~ ws ~
+        (scalaLang ~ ws ~
           (("marklit" | "mdoc") ~ ws ~ ":".? ~ ws).? ~
-          modifierList).map { case (_, mods) => (true, mods) } |
+          modifierList).map(mods => (true, mods)) |
         // Not a scala block
         CharsWhile(_ => true, 0).map(_ => (false, Seq.empty))
     )
