@@ -107,9 +107,20 @@ object InfoStringParser:
           case Right((key, value)) =>
             // Key=value pair
             key match
-              case "id"            => id = Some(value)
-              case "extends"       => extendsScope = Some(value)
-              case "scala"         => scalaVersion = Some(value)
+              case "id"      => id = Some(value)
+              case "extends" => extendsScope = Some(value)
+              case "scala"   =>
+                // `scala=shared` / `scala=shared-{mv}` are *not* version
+                // requests — they declare a cross-version shared block. Map
+                // them to the corresponding Modifier and leave scalaVersion
+                // unset so downstream code never sees "shared" as a version.
+                value.toLowerCase match
+                  case "shared" => modifiers += Modifier.Shared
+                  case other if other.startsWith("shared-") =>
+                    val mv = other.stripPrefix("shared-")
+                    if mv.nonEmpty then
+                      modifiers += Modifier.SharedMajor(mv)
+                  case _ => scalaVersion = Some(value)
               case "show-warnings" => showWarningsOverride = parseBool(value)
               case _               => () // Ignore unknown keys
         }

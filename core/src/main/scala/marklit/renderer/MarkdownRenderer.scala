@@ -78,7 +78,23 @@ object MarkdownRenderer:
 
     // Render output/errors based on block type and showOutput setting
     result.foreach { br =>
-      val ver = br.effectiveScalaVersion
+      // Cross-version (`scala=shared` / `scala=shared-{mv}`) blocks have one
+      // BlockExecution per applicable version. Render dedup'd or per-version
+      // labeled — the helper picks the format.
+      if br.crossExecutions.nonEmpty then
+        renderCrossExecutions(sb, block, br.crossExecutions, config)
+      else
+        val ver = br.effectiveScalaVersion
+        renderSingleExecution(sb, block, br, ver, config)
+    }
+
+  private def renderSingleExecution(
+      sb: StringBuilder,
+      block: CodeBlock,
+      br: BlockResult,
+      ver: Option[String],
+      config: RenderConfig
+  ): Unit =
       // For fail blocks, show the expected compilation errors
       if block.expectsFailure then
         br.compileResult.foreach { cr =>
@@ -137,7 +153,6 @@ object MarkdownRenderer:
           br.executionOutput.filter(_.nonEmpty).foreach { output =>
             renderOutput(sb, output, config, ver)
           }
-    }
 
   private def renderOutput(
       sb: StringBuilder,
@@ -145,19 +160,94 @@ object MarkdownRenderer:
       config: RenderConfig,
       scalaVersion: Option[String]
   ): Unit =
+    renderOutputWithHeader(
+      sb,
+      output,
+      config,
+      scalaVersion.filter(_ => config.showScalaVersion).map(v => s"// Scala $v")
+    )
+
+  /** Emit a fenced output block with an optional pre-output header line (used
+    * by both per-version `// Scala X` labels and the `// All cross versions:`
+    * dedup'd header).
+    */
+  private def renderOutputWithHeader(
+      sb: StringBuilder,
+      output: String,
+      config: RenderConfig,
+      header: Option[String]
+  ): Unit =
     if config.outputFenceLanguage.nonEmpty then
       sb.append(s"```${config.outputFenceLanguage}\n")
     else sb.append("```\n")
 
-    // Show Scala version comment if enabled and version provided
-    if config.showScalaVersion then
-      scalaVersion.foreach { v =>
-        sb.append(s"// Scala $v\n")
-      }
+    header.foreach(h => sb.append(s"$h\n"))
 
     sb.append(output)
     if !output.endsWith("\n") then sb.append("\n")
     sb.append("```\n")
+
+  /** Render a `scala=shared` / `scala=shared-{mv}` block's per-version
+    * executions. When every execution succeeded with identical stdout, render
+    * a single output block headed by `// All cross versions: Scala v1, v2, …`.
+    * Otherwise emit one labeled output (or compile-error / runtime-error)
+    * block per execution, in the order versions appear in [[crossExecutions]].
+    */
+  private def renderCrossExecutions(
+      sb: StringBuilder,
+      block: CodeBlock,
+      execs: Vector[BlockExecution],
+      config: RenderConfig
+  ): Unit =
+    if !block.showOutput || execs.isEmpty then return
+
+    val allCleanlyCompiled = execs.forall(_.compileResult.exists(_.success))
+    val allNoError = execs.forall(_.error.isEmpty)
+    val outputs = execs.map(_.executionOutput.getOrElse(""))
+    val outputsAgree = outputs.distinct.size == 1
+
+    if allCleanlyCompiled && allNoError && outputsAgree then
+      val header =
+        if config.showScalaVersion then
+          val versions = execs.map(_.scalaVersion).mkString(", ")
+          Some(s"// All cross versions: Scala $versions")
+        else None
+      val output = outputs.head
+      if output.nonEmpty then renderOutputWithHeader(sb, output, config, header)
+    else
+      // Divergent: render per-version. Each execution gets either its compile
+      // errors or its (possibly empty) execution output, both labeled.
+      execs.foreach { x =>
+        val ver = Some(x.scalaVersion)
+        x.compileResult match
+          case Some(cr) if !cr.success =>
+            if config.showCompileErrors then
+              renderDiagnostics(sb, cr.errors, config, ver)
+          case _ =>
+            if block.showWarnings(config.showCompileWarnings) then
+              x.compileResult.foreach { cr =>
+                val warnings =
+                  cr.diagnostics.filter(_.severity == DiagnosticSeverity.Warning)
+                if warnings.nonEmpty then
+                  renderDiagnostics(sb, warnings, config, ver)
+              }
+            x.executionOutput.filter(_.nonEmpty).foreach { out =>
+              renderOutput(sb, out, config, ver)
+            }
+            x.error.foreach {
+              case MarklitError.RuntimeError(ex, runOut)
+                  if config.showRuntimeErrors =>
+                if runOut.nonEmpty then renderOutput(sb, runOut, config, ver)
+                sb.append("```\n")
+                if config.showScalaVersion then
+                  sb.append(s"// Scala ${x.scalaVersion}\n")
+                sb.append(
+                  s"${config.errorPrefix}Exception: ${ex.getClass.getSimpleName}: ${ex.getMessage}\n"
+                )
+                sb.append("```\n")
+              case _ => ()
+            }
+      }
 
   private def renderDiagnostics(
       sb: StringBuilder,

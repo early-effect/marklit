@@ -138,8 +138,8 @@ Code fences with the info string `scala marklit:<modifiers>` are processed. Modi
 | `extends=<name>,append` | Append to `<name>` instead of branching. Subsequent `extends=<name>` blocks see the appended code. |
 | `scala=<bare-major>` | Filter the block to a Scala major (`scala=2`, `scala=3`). Skipped at runtimes that don't match. |
 | `scala=<specific-version>` | Compile this block against an exact version (`scala=3.7.3`, `scala=2.13.16`). |
-| `shared` | Prepend this block's code to *every* per-version default scope. Useful for helpers. |
-| `shared-2` / `shared-3` | Like `shared`, but only contribute to one Scala major's default scope. |
+| `scala=shared` | Compile and run against *every* Scala version in use, and prepend the code to every per-version default scope. Renders one output if all versions agree, per-version labeled output otherwise. |
+| `scala=shared-2` / `scala=shared-3` | Like `scala=shared`, but restricted to a single Scala major. |
 
 Examples: `silent,id=setup`, `fail,extends=errors`, `zio-app,scala=3.8.2`. `id` and `append` are mutually exclusive; `append` requires `extends`.
 
@@ -214,7 +214,7 @@ Enable it once:
 - **Mill:** `def marklitPageScope = true`
 - **CLI:**  `marklit --page-scope ...`
 
-Then anonymous blocks in the same file (per Scala version) accumulate state without any modifiers. Page scope only rewrites anonymous blocks — `id=`, `extends=`, `passthrough`, `shared`, `fail`, `crash`, and `warn` always win. See [examples/base/src/main/markdown/page-scope.md](examples/base/src/main/markdown/page-scope.md) for a worked example.
+Then anonymous blocks in the same file (per Scala version) accumulate state without any modifiers. Page scope only rewrites anonymous blocks — `id=`, `extends=`, `passthrough`, `scala=shared`, `fail`, `crash`, and `warn` always win. See [examples/base/src/main/markdown/page-scope.md](examples/base/src/main/markdown/page-scope.md) for a worked example.
 
 If you want to render some files page-scoped and others isolated within the same project, define a sibling task (sbt) or module (Mill) that overrides `marklitPageScope` and points `marklitSourceDirectory` (or `marklitSourceDir` in Mill) at a different folder — both build tools let you reconfigure plugin tasks freely. There's no need to choose one mode for the whole build.
 

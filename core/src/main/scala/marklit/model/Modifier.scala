@@ -16,20 +16,17 @@ enum Modifier:
   ) // Prepend to default scopes for that Scala major
 
 object Modifier:
-  /** Parse a modifier from its string representation */
+  /** Parse a modifier from its string representation. Shared / SharedMajor are
+    * not parsed here — they're constructed by [[marklit.parser.InfoStringParser]]
+    * from the `scala=shared` / `scala=shared-{mv}` info-string forms.
+    */
   def parse(s: String): Option[Modifier] = s.toLowerCase match
-    case "silent"                             => Some(Silent)
-    case "invisible"                          => Some(Invisible)
-    case "fail"                               => Some(Fail)
-    case "warn"                               => Some(Warn)
-    case "crash"                              => Some(Crash)
-    case "compile-only"                       => Some(CompileOnly)
-    case "passthrough"                        => Some(Passthrough)
-    case "zio-app"                            => Some(ZIOApp)
-    case "shared"                             => Some(Shared)
-    case other if other.startsWith("shared-") =>
-      val mv = other.stripPrefix("shared-")
-      // Accept any nonempty suffix; the major is whatever the user wrote.
-      // Matching against version strings happens at scope-resolution time.
-      if mv.nonEmpty then Some(SharedMajor(mv)) else None
-    case _ => None
+    case "silent"       => Some(Silent)
+    case "invisible"    => Some(Invisible)
+    case "fail"         => Some(Fail)
+    case "warn"         => Some(Warn)
+    case "crash"        => Some(Crash)
+    case "compile-only" => Some(CompileOnly)
+    case "passthrough"  => Some(Passthrough)
+    case "zio-app"      => Some(ZIOApp)
+    case _              => None

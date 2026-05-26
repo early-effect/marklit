@@ -910,15 +910,19 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           processor = DocumentProcessorLive(scopeManager, compiler)
           result <- processor.process(Vector(shared, a, b))
         yield
-          // The shared block is itself compiled with no prior code.
-          val priorShared = compiler.compileCalls(0)._2
-          val priorA = compiler.compileCalls(1)._2
-          val priorB = compiler.compileCalls(2)._2
+          // The shared block fans out across versionsInUse, so look up calls
+          // by code rather than by index.
+          val priorShared =
+            compiler.compileCalls.filter(_._1 == "import scala.util.Try")
+          val priorA =
+            compiler.compileCalls.find(_._1 == "Try(1)").map(_._2)
+          val priorB =
+            compiler.compileCalls.find(_._1 == "Try(2)").map(_._2)
           assertTrue(
             result.isSuccess,
-            priorShared.isEmpty,
-            priorA == Vector("import scala.util.Try"),
-            priorB == Vector("import scala.util.Try")
+            priorShared.forall(_._2.isEmpty),
+            priorA == Some(Vector("import scala.util.Try")),
+            priorB == Some(Vector("import scala.util.Try"))
           )
       },
       test(
@@ -939,10 +943,10 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           // "as if prepended at document's start": even though `a` comes
           // before `shared` in source order, `a` should see the shared
           // import in its priorCode.
-          val priorA = compiler.compileCalls(0)._2
+          val priorA = compiler.compileCalls.find(_._1 == "Try(1)").map(_._2)
           assertTrue(
             result.isSuccess,
-            priorA == Vector("import scala.util.Try")
+            priorA == Some(Vector("import scala.util.Try"))
           )
       },
       test("shared-{mv} only contributes to default scopes of that major") {
@@ -962,11 +966,14 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           processor = DocumentProcessorLive(scopeManager, compiler)
           _ <- processor.process(Vector(s3, a, b))
         yield
-          val priorA = compiler.compileCalls(1)._2
-          // The 2.13 block is filtered out (bare-major mismatch w/ default
-          // 3.8.3) — but even if it weren't, shared-3 must NOT seed it.
+          val priorA =
+            compiler.compileCalls.find(_._1 == "val a: X = 1").map(_._2)
+          val priorB =
+            compiler.compileCalls.find(_._1 == "val b = 2").map(_._2)
+          // shared-3 must NOT seed the 2.13 block.
           assertTrue(
-            priorA == Vector("type X = Int")
+            priorA == Some(Vector("type X = Int")),
+            priorB == Some(Vector.empty[String])
           )
       },
       test(
@@ -994,6 +1001,176 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
             // The next block under the same version sees the shared once.
             priorNext == Vector("val s = 1")
           )
+      }
+    ),
+    suite("scala=shared cross-version fan-out")(
+      test(
+        "scala=shared block is compiled+executed once per version in use"
+      ) {
+        val shared = makeBlock(
+          "println(List(1,2,3).sum)",
+          Set(Modifier.Shared)
+        )
+        val a = makeBlock(
+          "val a = 1",
+          scopeConfig = ScopeConfig(scalaVersion = Some("3.7.3"))
+        )
+        val b = makeBlock(
+          "val b = 2",
+          scopeConfig = ScopeConfig(scalaVersion = Some("2.13.16"))
+        )
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "3.8.3",
+          executeResults = Map("println(List(1,2,3).sum)" -> "6\n")
+        )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(shared, a, b))
+        yield
+          val sharedResult = result.blockResults.head
+          // Fan-out targets every version in use: 3.8.3 (default), 3.7.3, 2.13.16.
+          val versions = sharedResult.crossExecutions.map(_.scalaVersion).toSet
+          assertTrue(
+            result.isSuccess,
+            sharedResult.crossExecutions.size == 3,
+            versions == Set("3.8.3", "3.7.3", "2.13.16"),
+            sharedResult.crossExecutions
+              .forall(_.executionOutput == Some("6\n"))
+          )
+      },
+      test(
+        "scala=shared-3 fans out only to 3.x versions in use"
+      ) {
+        val shared3 = makeBlock(
+          "println(\"three\")",
+          Set(Modifier.SharedMajor("3"))
+        )
+        val a = makeBlock(
+          "val a = 1",
+          scopeConfig = ScopeConfig(scalaVersion = Some("3.7.3"))
+        )
+        val b = makeBlock(
+          "val b = 2",
+          scopeConfig = ScopeConfig(scalaVersion = Some("2.13.16"))
+        )
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "3.8.3",
+          executeResults = Map("println(\"three\")" -> "three\n")
+        )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(shared3, a, b))
+        yield
+          val sharedResult = result.blockResults.head
+          val versions = sharedResult.crossExecutions.map(_.scalaVersion).toSet
+          assertTrue(
+            result.isSuccess,
+            // Only 3.x versions in use: 3.8.3 + 3.7.3.
+            sharedResult.crossExecutions.size == 2,
+            versions == Set("3.8.3", "3.7.3")
+          )
+      },
+      test(
+        "compile failure on one cross version surfaces in DocumentResult.errors"
+      ) {
+        val shared = makeBlock("bad code", Set(Modifier.Shared))
+        val a = makeBlock(
+          "val a = 1",
+          scopeConfig = ScopeConfig(scalaVersion = Some("2.13.16"))
+        )
+        // Shared compiles cleanly at 3.x default but fails at 2.13. Other
+        // (non-shared) blocks compile cleanly regardless of version.
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "3.8.3",
+          compileResults = Map.empty
+        ):
+          override def compile(
+              code: String,
+              priorCode: Vector[String],
+              isZIOApp: Boolean,
+              scalaVersion: Option[String],
+              location: Option[Location],
+              scopeConfig: ScopeConfig,
+              scopeMode: ScopeMode
+          ): IO[MarklitError, CompileResult] =
+            compileCalls += ((code, priorCode))
+            compileCallsWithVersion += ((code, priorCode, scalaVersion))
+            val isTwo = scalaVersion.exists(_.startsWith("2"))
+            val sharedFailsHere = code == "bad code" && isTwo
+            ZIO.succeed(
+              if sharedFailsHere then
+                CompileResult(
+                  success = false,
+                  diagnostics = List(
+                    ScalaDiagnostic(
+                      DiagnosticSeverity.Error,
+                      "boom on 2.13",
+                      1,
+                      1,
+                      None
+                    )
+                  )
+                )
+              else CompileResult(success = true, diagnostics = Nil)
+            )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(shared, a))
+        yield
+          val sharedResult = result.blockResults.head
+          val perVersionSuccess = sharedResult.crossExecutions
+            .map(x => x.scalaVersion -> x.compileResult.exists(_.success))
+            .toMap
+          assertTrue(
+            !result.isSuccess,
+            !sharedResult.isSuccess,
+            perVersionSuccess.get("3.8.3").contains(true),
+            perVersionSuccess.get("2.13.16").contains(false),
+            result.compileErrors.size == 1,
+            result.compileErrors.head._2.exists(_.message == "boom on 2.13")
+          )
+      },
+      test(
+        "scala=shared with no other versions in doc still fans out to default"
+      ) {
+        val shared = makeBlock("println(1)", Set(Modifier.Shared))
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "3.8.3",
+          executeResults = Map("println(1)" -> "1\n")
+        )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(shared))
+        yield
+          val sharedResult = result.blockResults.head
+          assertTrue(
+            result.isSuccess,
+            sharedResult.crossExecutions.size == 1,
+            sharedResult.crossExecutions.head.scalaVersion == "3.8.3",
+            sharedResult.crossExecutions.head.executionOutput == Some("1\n")
+          )
+      },
+      test(
+        "non-shared blocks have empty crossExecutions"
+      ) {
+        val a = makeBlock("val a = 1")
+        val compiler = new TestCompiler(defaultScalaVersion = "3.8.3")
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(a))
+        yield assertTrue(
+          result.blockResults.head.crossExecutions.isEmpty
+        )
       }
     )
   ).provide(ScopeManager.layer) @@ TestAspect.sequential
