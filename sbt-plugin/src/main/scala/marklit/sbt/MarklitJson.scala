@@ -22,7 +22,8 @@ private[sbt] object MarklitJson {
       classpath2: Option[String],
       classpath3: Option[String],
       scalaVersion: Option[String],
-      cacheDir: Option[String]
+      cacheDir: Option[String],
+      pageScope: Boolean
   ): String = {
     val params = new StringBuilder
     params.append("{")
@@ -57,6 +58,8 @@ private[sbt] object MarklitJson {
       params.append(",")
       appendField(params, "cacheDir", str(cacheDir.get))
     }
+    params.append(",")
+    appendField(params, "pageScope", bool(pageScope))
     params.append("}")
 
     s"""{"method":"compile-document","params":${params.toString}}"""

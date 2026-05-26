@@ -1,10 +1,10 @@
 package marklit.mill
 
-/** Minimal JSON encoder for daemon-RPC requests, plus a tiny extractor for
-  * the response fields we care about. Hand-rolled to avoid pulling a JSON
-  * library onto the Mill plugin classpath. Mirrors the sbt-plugin twin in
-  * `marklit.sbt.MarklitJson`; if either needs to grow much past trivial
-  * shapes, swap in a real JSON dep instead of duplicating again.
+/** Minimal JSON encoder for daemon-RPC requests, plus a tiny extractor for the
+  * response fields we care about. Hand-rolled to avoid pulling a JSON library
+  * onto the Mill plugin classpath. Mirrors the sbt-plugin twin in
+  * `marklit.sbt.MarklitJson`; if either needs to grow much past trivial shapes,
+  * swap in a real JSON dep instead of duplicating again.
   */
 private[mill] object MarklitJson:
 
@@ -19,7 +19,8 @@ private[mill] object MarklitJson:
       classpath2: Option[String],
       classpath3: Option[String],
       scalaVersion: Option[String],
-      cacheDir: Option[String]
+      cacheDir: Option[String],
+      pageScope: Boolean
   ): String =
     val params = new StringBuilder
     params.append("{")
@@ -54,6 +55,8 @@ private[mill] object MarklitJson:
       params.append(",")
       appendField(params, "cacheDir", str(v))
     }
+    params.append(",")
+    appendField(params, "pageScope", bool(pageScope))
     params.append("}")
 
     s"""{"method":"compile-document","params":${params.toString}}"""
@@ -73,7 +76,11 @@ private[mill] object MarklitJson:
   def extractMessage(line: String): Option[String] =
     extractStringField(line, "message")
 
-  private def appendField(sb: StringBuilder, key: String, rawValue: String): Unit =
+  private def appendField(
+      sb: StringBuilder,
+      key: String,
+      rawValue: String
+  ): Unit =
     sb.append('"').append(key).append('"').append(':').append(rawValue)
 
   private def str(s: String): String =
@@ -83,13 +90,13 @@ private[mill] object MarklitJson:
     while i < s.length do
       val c = s.charAt(i)
       c match
-        case '"'              => sb.append("\\\"")
-        case '\\'             => sb.append("\\\\")
-        case '\n'             => sb.append("\\n")
-        case '\r'             => sb.append("\\r")
-        case '\t'             => sb.append("\\t")
-        case ch if ch < 0x20  => sb.append(f"\\u${ch.toInt}%04x")
-        case ch               => sb.append(ch)
+        case '"'             => sb.append("\\\"")
+        case '\\'            => sb.append("\\\\")
+        case '\n'            => sb.append("\\n")
+        case '\r'            => sb.append("\\r")
+        case '\t'            => sb.append("\\t")
+        case ch if ch < 0x20 => sb.append(f"\\u${ch.toInt}%04x")
+        case ch              => sb.append(ch)
       i += 1
     sb.append('"')
     sb.toString

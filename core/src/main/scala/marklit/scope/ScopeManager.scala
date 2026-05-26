@@ -28,6 +28,15 @@ object Scope:
   def defaultIdFor(version: String): String =
     if version.isEmpty then defaultId else s"${defaultId}${version}"
 
+  /** Page-scope id for a specific Scala version. Used when the CLI/plugin opts
+    * a file into shared-by-default behavior: every anonymous block extends this
+    * scope (with `append`), parented to the per-version default so `shared`
+    * blocks still seed it.
+    */
+  val pageId = "__page__"
+  def pageIdFor(version: String): String =
+    if version.isEmpty then pageId else s"${pageId}${version}"
+
   def default: Scope = Scope(defaultId, None, Vector.empty, None)
 
   def defaultFor(version: String): Scope =
@@ -204,21 +213,31 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
       effectiveVersion: Option[String]
   ): (Either[MarklitError, ResolvedScope], ScopeState) =
     (config.id, config.extendsScope, config.append) match
-      // No scope config - use default scope (per-version when known)
+      // No scope config - fresh anonymous scope per block (isolated by
+      // default, per the README's "Scopes — explicit by default" model). The
+      // per-version default scope (`__default__<version>`) is treated as a
+      // read-only parent that holds the file's seeded `shared` / `shared-{mv}`
+      // blocks; the new anonymous scope inherits that code so opt-in helpers
+      // still flow into every block, but two anonymous blocks no longer see
+      // each other's definitions.
       case (None, None, false) =>
-        effectiveVersion match
+        val (defaultScope, stateWithDefault) = effectiveVersion match
           case Some(v) =>
             val id = Scope.defaultIdFor(v)
             state.getScope(id) match
-              case Some(scope) =>
-                (Right(ResolvedScope(scope, Vector.empty)), state)
-              case None =>
-                val newScope = Scope.defaultFor(v)
-                val newState = state.addScope(newScope)
-                (Right(ResolvedScope(newScope, Vector.empty)), newState)
+              case Some(s) => (s, state)
+              case None    =>
+                val ns = Scope.defaultFor(v)
+                (ns, state.addScope(ns))
           case None =>
-            val scope = state.getScope(Scope.defaultId).getOrElse(Scope.default)
-            (Right(ResolvedScope(scope, Vector.empty)), state)
+            val s = state.getScope(Scope.defaultId).getOrElse(Scope.default)
+            (s, state)
+        val (stateWithId, anonId) = stateWithDefault.nextAnonymousId
+        val newScope =
+          Scope.named(anonId, effectiveVersion, Some(defaultScope.id))
+        val newState = stateWithId.addScope(newScope)
+        val inherited = collectInheritedCode(defaultScope.id, stateWithId)
+        (Right(ResolvedScope(newScope, inherited)), newState)
 
       // id=foo - create or get named scope
       case (Some(id), None, false) =>

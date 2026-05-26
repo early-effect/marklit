@@ -254,8 +254,8 @@ object MarkdownParser:
           )
         )
 
-  /** Detects a line that starts with `>` (a blockquote prefix) and then opens
-    * a Scala fence. We reject these explicitly: marklit does not extract code
+  /** Detects a line that starts with `>` (a blockquote prefix) and then opens a
+    * Scala fence. We reject these explicitly: marklit does not extract code
     * from inside blockquotes, since output injection would break the quote
     * structure. Returns Some((lineNumber, columnOfGreaterThan)) for the first
     * offending line, or None if no offense is found.

@@ -66,7 +66,7 @@ object Marklit:
     */
   def live: ZLayer[Compiler, Nothing, Marklit] =
     ZLayer.fromFunction { (compiler: Compiler) =>
-      MarklitLive(CompilerServiceAdapter.fixed(compiler))
+      MarklitLive(CompilerServiceAdapter.fixed(compiler), ScopeMode.Isolated)
     }
 
   /** Create a layer using a pre-built [[CompilerFactory]] and a default
@@ -86,7 +86,8 @@ object Marklit:
       defaultExtraClasspath: Vector[String] = Vector.empty,
       defaultScalacOptions: Vector[String] = Vector.empty,
       majorClasspaths: Map[String, Vector[String]] = Map.empty,
-      cacheDir: Option[Path] = None
+      cacheDir: Option[Path] = None,
+      scopeMode: ScopeMode = ScopeMode.Isolated
   ): ZLayer[CompilerFactory, Nothing, Marklit] =
     ZLayer.fromZIO {
       for
@@ -105,7 +106,7 @@ object Marklit:
           majorClasspaths,
           cache
         )
-      yield MarklitLive(adapter)
+      yield MarklitLive(adapter, scopeMode)
     }
 
   /** Fully configured layer that resolves a default-version compiler via
@@ -251,7 +252,9 @@ private final class CompilerServiceAdapter(
       priorCode: Vector[String],
       isZIOApp: Boolean,
       scalaVersion: Option[String],
-      location: Option[Location]
+      location: Option[Location],
+      scopeConfig: ScopeConfig,
+      scopeMode: ScopeMode
   ): IO[MarklitError, CompileResult] =
     val invoke =
       compilerFor(scalaVersion).flatMap(
@@ -272,7 +275,9 @@ private final class CompilerServiceAdapter(
           isZIOApp = isZIOApp,
           file = loc.file,
           startLine = loc.startLine,
-          startColumn = loc.startColumn
+          startColumn = loc.startColumn,
+          scopeConfig = scopeConfig,
+          scopeMode = scopeMode
         )
         cache.get(key).flatMap {
           case Some(hit) => ZIO.succeed(hit)
@@ -395,7 +400,10 @@ private object CompilerServiceAdapter:
     sb.toString
 
 /** Live implementation */
-final class MarklitLive(compilerService: CompilerService) extends Marklit:
+final class MarklitLive(
+    compilerService: CompilerService,
+    scopeMode: ScopeMode = ScopeMode.Isolated
+) extends Marklit:
 
   override def processFile(path: Path): IO[MarklitError, MarklitResult] =
     for
@@ -423,7 +431,11 @@ final class MarklitLive(compilerService: CompilerService) extends Marklit:
 
       // Create processor with the shared compiler service (factory-aware
       // when wired via Marklit.layer / liveWithFactory)
-      processor = DocumentProcessorLive(scopeManager, compilerService)
+      processor = DocumentProcessorLive(
+        scopeManager,
+        compilerService,
+        scopeMode
+      )
 
       // Process all code blocks
       result <- processor.process(document.codeBlocks)

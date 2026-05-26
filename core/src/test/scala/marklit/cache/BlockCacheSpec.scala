@@ -87,6 +87,49 @@ object BlockCacheSpec extends ZIOSpecDefault:
       val k2 = sampleKey()
       assertTrue(k1 == k2)
     },
+    test("different scope config produces different key") {
+      // Two physically identical blocks (same code, location, priorCode)
+      // can mean different things depending on whether they're anonymous
+      // or page-rewritten to `id=__page__<v>`. Without scope config in
+      // the key, an entry computed under one mode would be served to the
+      // other and silently feed wrong class files into the executor.
+      def keyWith(cfg: ScopeConfig): BlockCacheKey =
+        BlockCacheKey.make(
+          code = "println(1)",
+          priorCode = Vector.empty,
+          scalaVersion = "3.8.2",
+          classpath = Vector("a.jar"),
+          classpathHashes = Vector("h1"),
+          scalacOptions = Vector.empty,
+          isZIOApp = false,
+          file = "f.md",
+          startLine = 10,
+          startColumn = 1,
+          scopeConfig = cfg,
+          scopeMode = ScopeMode.Page
+        )
+      val anon = keyWith(ScopeConfig.empty)
+      val pageId = keyWith(ScopeConfig(id = Some("__page__3.8.2")))
+      assertTrue(anon != pageId)
+    },
+    test("different scope mode produces different key") {
+      def keyWith(mode: ScopeMode): BlockCacheKey =
+        BlockCacheKey.make(
+          code = "println(1)",
+          priorCode = Vector.empty,
+          scalaVersion = "3.8.2",
+          classpath = Vector("a.jar"),
+          classpathHashes = Vector("h1"),
+          scalacOptions = Vector.empty,
+          isZIOApp = false,
+          file = "f.md",
+          startLine = 10,
+          startColumn = 1,
+          scopeConfig = ScopeConfig.empty,
+          scopeMode = mode
+        )
+      assertTrue(keyWith(ScopeMode.Isolated) != keyWith(ScopeMode.Page))
+    },
     test("changing classpath hash invalidates key") {
       val k1 = BlockCacheKey.make(
         code = "x",

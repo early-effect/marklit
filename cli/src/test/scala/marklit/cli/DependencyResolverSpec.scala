@@ -4,6 +4,8 @@ import marklit.resolver.DependencyResolver
 import zio.*
 import zio.test.*
 
+import scala.collection.immutable.ListSet
+
 object DependencyResolverSpec extends ZIOSpecDefault:
 
   def spec = suite("DependencyResolver")(
@@ -38,7 +40,7 @@ object DependencyResolverSpec extends ZIOSpecDefault:
                      |val x = 1""".stripMargin
         val result = DependencyResolver.parseUsingDirectives(code)
         assertTrue(
-          result.dependencies == Vector("dev.zio::zio:2.1.24")
+          result.dependencies == ListSet("dev.zio::zio:2.1.24")
         )
       },
 
@@ -78,7 +80,7 @@ object DependencyResolverSpec extends ZIOSpecDefault:
                      |val x = 1""".stripMargin
         val result = DependencyResolver.parseUsingDirectives(code)
         assertTrue(
-          result.repositories == Vector("https://repo.example.com/maven")
+          result.repositories == ListSet("https://repo.example.com/maven")
         )
       },
 
@@ -99,7 +101,7 @@ object DependencyResolverSpec extends ZIOSpecDefault:
                      |val x = 1""".stripMargin
         val result = DependencyResolver.parseUsingDirectives(code)
         assertTrue(
-          result.dependencies == Vector("dev.zio::zio:2.1.24")
+          result.dependencies == ListSet("dev.zio::zio:2.1.24")
         )
       },
 
@@ -116,6 +118,34 @@ object DependencyResolverSpec extends ZIOSpecDefault:
                      |val x = 1""".stripMargin
         val result = DependencyResolver.parseUsingDirectives(code)
         assertTrue(result.isEmpty)
+      },
+
+      test("deduplicates repeated scalac options") {
+        // Same flag declared in multiple blocks of one file collapses to a
+        // single entry. Without this, dotc emits "Flag set repeatedly" for
+        // every duplicate it sees in a compilation request.
+        val code = """//> using option -deprecation
+                     |//> using options -deprecation, -feature
+                     |//> using option -deprecation
+                     |val x = 1""".stripMargin
+        val result = DependencyResolver.parseUsingDirectives(code)
+        assertTrue(
+          result.scalacOptions == ListSet("-deprecation", "-feature")
+        )
+      },
+
+      test("deduplicates repeated dependencies") {
+        val code = """//> using dep dev.zio::zio:2.1.24
+                     |//> using dep dev.zio::zio:2.1.24
+                     |//> using deps dev.zio::zio:2.1.24, org.typelevel::cats-core:2.10.0
+                     |val x = 1""".stripMargin
+        val result = DependencyResolver.parseUsingDirectives(code)
+        assertTrue(
+          result.dependencies == ListSet(
+            "dev.zio::zio:2.1.24",
+            "org.typelevel::cats-core:2.10.0"
+          )
+        )
       }
     ),
 

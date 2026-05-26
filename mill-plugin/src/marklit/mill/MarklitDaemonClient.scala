@@ -12,13 +12,13 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Long-lived marklit daemon process and a thin RPC client around its
   * stdin/stdout. One client per Mill `Task.Worker` slot — Mill caches the
-  * worker for the life of the daemon (or until inputs invalidate it) and
-  * calls [[close]] when displacing or shutting down.
+  * worker for the life of the daemon (or until inputs invalidate it) and calls
+  * [[close]] when displacing or shutting down.
   *
   * Mirrors `marklit.sbt.MarklitDaemonClient`. The two implementations stay
-  * intentionally similar — every protocol shape, error path, and respawn
-  * rule lives in both. Keep them in sync by hand until the surface grows
-  * large enough to justify a shared Java module.
+  * intentionally similar — every protocol shape, error path, and respawn rule
+  * lives in both. Keep them in sync by hand until the surface grows large
+  * enough to justify a shared Java module.
   */
 private[mill] final class MarklitDaemonClient(
     marklitJar: os.Path,
@@ -29,10 +29,10 @@ private[mill] final class MarklitDaemonClient(
   private val active = new AtomicReference[ActiveDaemon](null)
   private val rpcLock = new AnyRef
 
-  /** Send a `compile-document` RPC. Returns `None` on success, `Some(msg)`
-    * on protocol-level error. Throws on transport failure (broken pipe,
-    * malformed response, daemon refused to spawn) — the caller catches and
-    * falls back to one-shot mode.
+  /** Send a `compile-document` RPC. Returns `None` on success, `Some(msg)` on
+    * protocol-level error. Throws on transport failure (broken pipe, malformed
+    * response, daemon refused to spawn) — the caller catches and falls back to
+    * one-shot mode.
     */
   def compileDocument(
       inputFiles: Seq[String],
@@ -45,7 +45,8 @@ private[mill] final class MarklitDaemonClient(
       classpath2: Option[String],
       classpath3: Option[String],
       scalaVersion: Option[String],
-      cacheDir: Option[String]
+      cacheDir: Option[String],
+      pageScope: Boolean
   ): Option[String] = rpcLock.synchronized {
     val daemon = ensureAlive()
     val request = MarklitJson.compileDocumentRequest(
@@ -59,7 +60,8 @@ private[mill] final class MarklitDaemonClient(
       classpath2 = classpath2,
       classpath3 = classpath3,
       scalaVersion = scalaVersion,
-      cacheDir = cacheDir
+      cacheDir = cacheDir,
+      pageScope = pageScope
     )
     sendRequest(daemon, request)
     parseAck(readResponse(daemon))
@@ -73,8 +75,8 @@ private[mill] final class MarklitDaemonClient(
   }
 
   /** Mill calls this when the worker is displaced or the build server is
-    * shutting down. Best-effort: any IOException is logged and ignored —
-    * the daemon's stdout-EOF will end the process anyway.
+    * shutting down. Best-effort: any IOException is logged and ignored — the
+    * daemon's stdout-EOF will end the process anyway.
     */
   override def close(): Unit = rpcLock.synchronized {
     val daemon = active.getAndSet(null)
@@ -143,9 +145,10 @@ private[mill] final class MarklitDaemonClient(
   private def parseAck(line: String): Option[String] =
     MarklitJson.extractStatus(line) match
       case Some("ok")    => None
-      case Some("error") => Some(MarklitJson.extractMessage(line).getOrElse("unknown error"))
-      case Some(other)   => Some(s"unexpected status '$other' in response: $line")
-      case None          => Some(s"unparseable response: $line")
+      case Some("error") =>
+        Some(MarklitJson.extractMessage(line).getOrElse("unknown error"))
+      case Some(other) => Some(s"unexpected status '$other' in response: $line")
+      case None        => Some(s"unparseable response: $line")
 
   private case class ActiveDaemon(
       process: Process,

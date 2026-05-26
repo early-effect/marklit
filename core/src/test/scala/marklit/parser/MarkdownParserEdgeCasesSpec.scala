@@ -347,7 +347,8 @@ object MarkdownParserEdgeCasesSpec extends ZIOSpecDefault:
       )
     },
     test("H1b: rejection points at the offending line, not line 1") {
-      val content = s"intro\nmore intro\n\n> ${tick3}scala\n> val x = 1\n> $tick3\n"
+      val content =
+        s"intro\nmore intro\n\n> ${tick3}scala\n> val x = 1\n> $tick3\n"
       for result <- parse(content).either
       yield assertTrue(
         result.left.toOption.exists {

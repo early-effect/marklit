@@ -5,6 +5,7 @@ import fastparse.*
 import fastparse.NoWhitespace.*
 import zio.*
 
+import scala.collection.immutable.ListSet
 import scala.jdk.CollectionConverters.*
 
 /** Resolves Maven/Ivy dependencies to classpath entries using Coursier */
@@ -146,12 +147,18 @@ object DependencyResolver:
     case ScalacOptions(options: Vector[String])
     case Unknown(key: String, value: String)
 
-  /** Accumulated using directives from a document */
+  /** Accumulated using directives from a document.
+    *
+    * `dependencies`, `repositories`, and `scalacOptions` are insertion-ordered
+    * sets — duplicates within or across blocks collapse to a single entry,
+    * which prevents dotc/nsc from emitting "set repeatedly" warnings when the
+    * same flag appears in multiple blocks of one file.
+    */
   case class UsingDirectives(
-      dependencies: Vector[String] = Vector.empty,
+      dependencies: ListSet[String] = ListSet.empty,
       scalaVersion: Option[String] = None,
-      repositories: Vector[String] = Vector.empty,
-      scalacOptions: Vector[String] = Vector.empty
+      repositories: ListSet[String] = ListSet.empty,
+      scalacOptions: ListSet[String] = ListSet.empty
   ):
     def merge(other: UsingDirectives): UsingDirectives =
       UsingDirectives(
@@ -166,13 +173,13 @@ object DependencyResolver:
 
   extension (ud: UsingDirectives)
     def addDirective(d: Directive): UsingDirectives = d match
-      case Directive.Dep(v)    => ud.copy(dependencies = ud.dependencies :+ v)
+      case Directive.Dep(v)    => ud.copy(dependencies = ud.dependencies + v)
       case Directive.Deps(vs)  => ud.copy(dependencies = ud.dependencies ++ vs)
       case Directive.Scala(v)  => ud.copy(scalaVersion = Some(v))
-      case Directive.Repo(v)   => ud.copy(repositories = ud.repositories :+ v)
+      case Directive.Repo(v)   => ud.copy(repositories = ud.repositories + v)
       case Directive.Repos(vs) => ud.copy(repositories = ud.repositories ++ vs)
       case Directive.ScalacOption(v) =>
-        ud.copy(scalacOptions = ud.scalacOptions :+ v)
+        ud.copy(scalacOptions = ud.scalacOptions + v)
       case Directive.ScalacOptions(vs) =>
         ud.copy(scalacOptions = ud.scalacOptions ++ vs)
       case Directive.Unknown(_, _) => ud

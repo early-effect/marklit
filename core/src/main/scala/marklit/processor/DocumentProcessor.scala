@@ -2,6 +2,7 @@ package marklit.processor
 
 import marklit.model.*
 import marklit.scope.*
+import marklit.scope.Scope as MarklitScope
 import zio.*
 
 /** Result of processing a single code block */
@@ -97,7 +98,9 @@ trait CompilerService:
       priorCode: Vector[String],
       isZIOApp: Boolean,
       scalaVersion: Option[String],
-      location: Option[Location]
+      location: Option[Location],
+      scopeConfig: ScopeConfig = ScopeConfig.empty,
+      scopeMode: ScopeMode = ScopeMode.Isolated
   ): IO[MarklitError, CompileResult]
 
   def execute(
@@ -113,10 +116,67 @@ trait CompilerService:
   */
 final class DocumentProcessorLive(
     scopeManager: ScopeManager,
-    compiler: CompilerService
+    compiler: CompilerService,
+    scopeMode: ScopeMode = ScopeMode.Isolated
 ) extends DocumentProcessor:
 
   private val scalaVersion: String = compiler.defaultScalaVersion
+
+  /** Compute the version a block will be compiled against. Mirrors the
+    * precedence used by [[processBlock]]: per-block specific version, then
+    * bare-major, then `shared-{mv}` major, then service default.
+    *
+    * Returns `Left(())` when a bare-major has no default (block is skipped).
+    */
+  private def effectiveVersionFor(
+      block: CodeBlock
+  ): Either[Unit, String] =
+    block.requestedSpecificScalaVersion match
+      case Some(v) => Right(v)
+      case None    =>
+        block.scopeConfig.scalaVersion match
+          case Some(bareMajor) =>
+            compiler.defaultVersionForMajor(bareMajor).toRight(())
+          case None =>
+            block.sharedMajor match
+              case Some(m) =>
+                compiler.defaultVersionForMajor(m).toRight(())
+              case None => Right(scalaVersion)
+
+  /** Under page-scope, rewrite each otherwise-anonymous block's config to the
+    * exact shape a user could write by hand: the first such block (per Scala
+    * version) becomes `id=__page__<v>`, every subsequent one becomes
+    * `extends=__page__<v>, append`. Blocks that already carry an explicit
+    * `id`/`extends`/`append`, plus `passthrough`, `shared`, `fail`, `crash`,
+    * and `warn` blocks, are passed through untouched — they opt out of the page
+    * scope the same way they would in a hand-written file.
+    */
+  private def applyPageScope(
+      blocks: Vector[CodeBlock]
+  ): Vector[CodeBlock] =
+    if scopeMode != ScopeMode.Page then blocks
+    else
+      val (rewritten, _) = blocks.foldLeft(
+        (Vector.empty[CodeBlock], Set.empty[String])
+      ) { case ((acc, initialized), block) =>
+        val cfg = block.scopeConfig
+        val isAnon = cfg.id.isEmpty && cfg.extendsScope.isEmpty && !cfg.append
+        val opaque =
+          block.isPassthrough || block.isAnyShared ||
+            block.expectsFailure || block.expectsCrash || block.expectsWarnings
+        if !isAnon || opaque then (acc :+ block, initialized)
+        else
+          effectiveVersionFor(block) match
+            case Left(_)  => (acc :+ block, initialized) // will be skipped
+            case Right(v) =>
+              val pageId = MarklitScope.pageIdFor(v)
+              val newCfg =
+                if initialized.contains(pageId) then
+                  cfg.copy(extendsScope = Some(pageId), append = true)
+                else cfg.copy(id = Some(pageId))
+              (acc :+ block.copy(scopeConfig = newCfg), initialized + pageId)
+      }
+      rewritten
 
   override def process(
       blocks: Vector[CodeBlock]
@@ -166,11 +226,24 @@ final class DocumentProcessorLive(
         }
       }
 
+    val processed = applyPageScope(blocks)
+    // Pair each processed (possibly page-scope-rewritten) block with its
+    // original CodeBlock so BlockResult.block remains the instance that
+    // appears in document.segments. The renderer keys block lookups by
+    // identity, so a rewritten block here would render with no output.
+    val pairs = processed.zip(blocks)
     seedAllShared *>
-      ZIO.foreach(blocks)(processBlock).map { results =>
-        val endTime = java.time.Instant.now()
-        DocumentResult(results, java.time.Duration.between(startTime, endTime))
-      }
+      ZIO
+        .foreach(pairs) { case (proc, original) =>
+          processBlock(proc).map(br => br.copy(block = original))
+        }
+        .map { results =>
+          val endTime = java.time.Instant.now()
+          DocumentResult(
+            results,
+            java.time.Duration.between(startTime, endTime)
+          )
+        }
 
   private def processBlock(block: CodeBlock): IO[MarklitError, BlockResult] =
     // Resolve the version this block compiles against. Precedence:
@@ -277,7 +350,15 @@ final class DocumentProcessorLive(
     if block.expectsFailure then
       // For fail blocks, we expect compilation to fail
       compiler
-        .compile(block.code, priorCode, block.isZIOApp, v, loc)
+        .compile(
+          block.code,
+          priorCode,
+          block.isZIOApp,
+          v,
+          loc,
+          block.scopeConfig,
+          scopeMode
+        )
         .either
         .map {
           case Left(_) =>
@@ -303,8 +384,17 @@ final class DocumentProcessorLive(
         }
     else if block.expectsWarnings then
       // For warn blocks, we expect compilation warnings
-      compiler.compile(block.code, priorCode, block.isZIOApp, v, loc).map {
-        cr =>
+      compiler
+        .compile(
+          block.code,
+          priorCode,
+          block.isZIOApp,
+          v,
+          loc,
+          block.scopeConfig,
+          scopeMode
+        )
+        .map { cr =>
           val hasWarnings = cr.warnings.nonEmpty
           if hasWarnings then
             // Got expected warnings - success
@@ -323,8 +413,17 @@ final class DocumentProcessorLive(
                 )
               )
             )
-      }
-    else compiler.compile(block.code, priorCode, block.isZIOApp, v, loc)
+        }
+    else
+      compiler.compile(
+        block.code,
+        priorCode,
+        block.isZIOApp,
+        v,
+        loc,
+        block.scopeConfig,
+        scopeMode
+      )
 
   /** Result of execution, including both output and any captured error */
   private case class ExecResult(

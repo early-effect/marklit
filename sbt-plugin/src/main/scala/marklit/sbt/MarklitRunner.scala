@@ -58,7 +58,8 @@ object MarklitRunner {
       log: Logger,
       majorClasspaths: Map[String, Seq[File]] = Map.empty,
       daemon: Option[MarklitDaemonClient] = None,
-      cacheDir: Option[File] = None
+      cacheDir: Option[File] = None,
+      pageScope: Boolean = false
   ): Int = daemon match {
     case Some(client) =>
       runViaDaemon(
@@ -74,7 +75,8 @@ object MarklitRunner {
         log = log,
         majorClasspaths = majorClasspaths,
         marklitJar = marklitJar,
-        cacheDir = cacheDir
+        cacheDir = cacheDir,
+        pageScope = pageScope
       )
     case None =>
       val args = Seq("--check") ++
@@ -82,6 +84,7 @@ object MarklitRunner {
         classpathArg("--classpath", classpath) ++
         majorClasspathArgs(majorClasspaths) ++
         cacheDirArg(cacheDir) ++
+        (if (pageScope) Seq("--page-scope") else Seq.empty) ++
         (if (verbose) Seq("--verbose") else Seq.empty) ++
         sources.map(_.getAbsolutePath)
       run(marklitJar, args, log)
@@ -101,7 +104,8 @@ object MarklitRunner {
       log: Logger,
       majorClasspaths: Map[String, Seq[File]] = Map.empty,
       daemon: Option[MarklitDaemonClient] = None,
-      cacheDir: Option[File] = None
+      cacheDir: Option[File] = None,
+      pageScope: Boolean = false
   ): Int = daemon match {
     case Some(client) =>
       runViaDaemon(
@@ -117,7 +121,8 @@ object MarklitRunner {
         log = log,
         majorClasspaths = majorClasspaths,
         marklitJar = marklitJar,
-        cacheDir = cacheDir
+        cacheDir = cacheDir,
+        pageScope = pageScope
       )
     case None =>
       val args = Seq("--out", outputDir.getAbsolutePath) ++
@@ -127,6 +132,7 @@ object MarklitRunner {
         cacheDirArg(cacheDir) ++
         (if (showVersion) Seq.empty else Seq("--no-show-version")) ++
         Seq("--show-warnings", showWarnings.toString) ++
+        (if (pageScope) Seq("--page-scope") else Seq.empty) ++
         (if (verbose) Seq("--verbose") else Seq.empty) ++
         sources.map(_.getAbsolutePath)
       run(marklitJar, args, log)
@@ -150,7 +156,8 @@ object MarklitRunner {
       log: Logger,
       majorClasspaths: Map[String, Seq[File]],
       marklitJar: File,
-      cacheDir: Option[File]
+      cacheDir: Option[File],
+      pageScope: Boolean
   ): Int = {
     val cpStr = pathString(classpath)
     val cp2 = majorClasspaths.get("2").flatMap(pathString)
@@ -167,7 +174,8 @@ object MarklitRunner {
         classpath2 = cp2,
         classpath3 = cp3,
         scalaVersion = Some(scalaVersion),
-        cacheDir = cacheDir.map(_.getAbsolutePath)
+        cacheDir = cacheDir.map(_.getAbsolutePath),
+        pageScope = pageScope
       ) match {
         case None =>
           0
@@ -186,6 +194,7 @@ object MarklitRunner {
           majorClasspathArgs(majorClasspaths) ++
           cacheDirArg(cacheDir) ++
           Seq("--show-warnings", showWarnings.toString) ++
+          (if (pageScope) Seq("--page-scope") else Seq.empty) ++
           (if (verbose) Seq("--verbose") else Seq.empty) ++
           sources.map(_.getAbsolutePath)
         val args = outputDir match {

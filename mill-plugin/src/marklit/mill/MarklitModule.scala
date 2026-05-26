@@ -4,55 +4,59 @@ import mill._
 import mill.api.PathRef
 import mill.scalalib._
 
-/**
- * A Mill module trait that provides marklit documentation generation capabilities.
- *
- * Mix this into a ScalaModule to add markdown documentation with executable Scala code blocks.
- *
- * Example usage:
- * {{{
- * //| mvnDeps:
- * //| - io.github.russwyte::mill-marklit:0.1.0-SNAPSHOT
- *
- * import marklit.mill.MarklitModule
- *
- * object docs extends ScalaModule with MarklitModule {
- *   def scalaVersion = "3.8.2"
- *   // optionally override marklitSourceDir, marklitVerbose, etc.
- * }
- * }}}
- */
+/** A Mill module trait that provides marklit documentation generation
+  * capabilities.
+  *
+  * Mix this into a ScalaModule to add markdown documentation with executable
+  * Scala code blocks.
+  *
+  * Example usage:
+  * {{{
+  * //| mvnDeps:
+  * //| - io.github.russwyte::mill-marklit:0.1.0-SNAPSHOT
+  *
+  * import marklit.mill.MarklitModule
+  *
+  * object docs extends ScalaModule with MarklitModule {
+  *   def scalaVersion = "3.8.2"
+  *   // optionally override marklitSourceDir, marklitVerbose, etc.
+  * }
+  * }}}
+  */
 trait MarklitModule extends ScalaModule {
 
-  /**
-   * Directory containing markdown source files.
-   * Defaults to `moduleDir / "markdown"`.
-   */
+  /** Directory containing markdown source files. Defaults to
+    * `moduleDir / "markdown"`.
+    */
   def marklitSourceDir: T[PathRef] = Task.Source(moduleDir / "markdown")
 
-  /**
-   * Whether to show Scala version in output code blocks.
-   * Defaults to true.
-   */
+  /** Whether to show Scala version in output code blocks. Defaults to true.
+    */
   def marklitShowVersion: T[Boolean] = true
 
-  /**
-   * Whether to render compile warnings in output code blocks.
-   * Defaults to true.
-   */
+  /** Whether to render compile warnings in output code blocks. Defaults to
+    * true.
+    */
   def marklitShowWarnings: T[Boolean] = true
 
-  /**
-   * Enable verbose output from marklit.
-   * Defaults to false.
-   */
+  /** Enable verbose output from marklit. Defaults to false.
+    */
   def marklitVerbose: T[Boolean] = false
 
-  /**
-   * Additional classpath entries to pass to marklit.
-   * By default, uses this module's compile classpath, filtering out Scala standard library jars
-   * to avoid version conflicts (the CLI resolves its own Scala library).
-   */
+  /** Share scope across all anonymous code blocks in each file. When true, the
+    * first anonymous block in a file (per Scala version) opens an implicit
+    * page-scope and every subsequent anonymous block extends it with `append`,
+    * so values defined in earlier blocks remain visible to later ones. Blocks
+    * with explicit `id=`/`extends=`, or with semantic-only modifiers
+    * (`passthrough`, `shared`, `fail`, `crash`, `warn`), bypass the rewrite.
+    * Defaults to false (each anonymous block isolated).
+    */
+  def marklitPageScope: T[Boolean] = false
+
+  /** Additional classpath entries to pass to marklit. By default, uses this
+    * module's compile classpath, filtering out Scala standard library jars to
+    * avoid version conflicts (the CLI resolves its own Scala library).
+    */
   def marklitClasspath: T[Seq[PathRef]] = Task {
     // Filter out:
     // - marklit-cli jar (contains bundled compiler)
@@ -65,34 +69,32 @@ trait MarklitModule extends ScalaModule {
     }
   }
 
-  /**
-   * Cross-built sibling modules whose classes should be made available to
-   * cross-version code blocks. Typical usage:
-   *
-   * {{{
-   * object core extends Cross[CoreModule](Seq(scala2, scala3))
-   * trait CoreModule extends CrossScalaModule
-   *
-   * object docs extends ScalaModule with MarklitModule {
-   *   def scalaVersion = scala3
-   *   def moduleDeps = Seq(core(scala3))
-   *   override def marklitCrossModuleDeps = core.crossModules
-   * }
-   * }}}
-   *
-   * Each entry's compile classpath is bucketed by its `crossScalaVersion`
-   * major and forwarded as `--classpath-2` / `--classpath-3` to the CLI.
-   * The bucket matching the docs module's own scalaVersion is skipped
-   * (those classes are already in `marklitClasspath`).
-   */
+  /** Cross-built sibling modules whose classes should be made available to
+    * cross-version code blocks. Typical usage:
+    *
+    * {{{
+    * object core extends Cross[CoreModule](Seq(scala2, scala3))
+    * trait CoreModule extends CrossScalaModule
+    *
+    * object docs extends ScalaModule with MarklitModule {
+    *   def scalaVersion = scala3
+    *   def moduleDeps = Seq(core(scala3))
+    *   override def marklitCrossModuleDeps = core.crossModules
+    * }
+    * }}}
+    *
+    * Each entry's compile classpath is bucketed by its `crossScalaVersion`
+    * major and forwarded as `--classpath-2` / `--classpath-3` to the CLI. The
+    * bucket matching the docs module's own scalaVersion is skipped (those
+    * classes are already in `marklitClasspath`).
+    */
   def marklitCrossModuleDeps: Seq[CrossModuleBase] = Seq.empty
 
-  /**
-   * Per-major classpaths used when a code block opts into a Scala major
-   * different from the docs module's own. By default, derived from
-   * `marklitCrossModuleDeps`. Override directly to wire arbitrary classpaths
-   * (e.g. published artifacts) to a major.
-   */
+  /** Per-major classpaths used when a code block opts into a Scala major
+    * different from the docs module's own. By default, derived from
+    * `marklitCrossModuleDeps`. Override directly to wire arbitrary classpaths
+    * (e.g. published artifacts) to a major.
+    */
   def marklitMajorClasspaths: T[Map[String, Seq[PathRef]]] = Task {
     val docsMajor = scalaVersion().takeWhile(_ != '.')
     // Task.traverse must see `marklitCrossModuleDeps` directly, not via a
@@ -123,41 +125,37 @@ trait MarklitModule extends ScalaModule {
       .toMap
   }
 
-  /**
-   * Whether to talk to a long-lived marklit daemon JVM instead of spawning a
-   * fresh subprocess per task. The daemon survives across `marklitGenerate` /
-   * `marklitCheck` invocations within one Mill server lifetime, keeping the
-   * per-version compiler classloaders warm. Default: true.
-   */
+  /** Whether to talk to a long-lived marklit daemon JVM instead of spawning a
+    * fresh subprocess per task. The daemon survives across `marklitGenerate` /
+    * `marklitCheck` invocations within one Mill server lifetime, keeping the
+    * per-version compiler classloaders warm. Default: true.
+    */
   def marklitDaemonEnabled: T[Boolean] = true
 
-  /**
-   * Idle timeout (seconds) before an inactive daemon shuts itself down.
-   * Default: 900 (15 minutes).
-   */
+  /** Idle timeout (seconds) before an inactive daemon shuts itself down.
+    * Default: 900 (15 minutes).
+    */
   def marklitDaemonIdleTimeoutSeconds: T[Long] = 900L
 
-  /**
-   * Persistent on-disk compile cache directory. Defaults to
-   * `moduleDir / "out" / "marklit-cache"`-style under Mill's `Task.dest` for
-   * a dedicated worker, so it survives across `marklitGenerate` /
-   * `marklitCheck` invocations within and across Mill server lifetimes. Set
-   * to `None` to disable caching entirely.
-   */
+  /** Persistent on-disk compile cache directory. Defaults to
+    * `moduleDir / "out" / "marklit-cache"`-style under Mill's `Task.dest` for a
+    * dedicated worker, so it survives across `marklitGenerate` / `marklitCheck`
+    * invocations within and across Mill server lifetimes. Set to `None` to
+    * disable caching entirely.
+    */
   def marklitCacheDir: T[Option[PathRef]] = Task {
     Some(PathRef(Task.dest / "marklit-cache"))
   }
 
-  /**
-   * Long-lived RPC client to a marklit daemon. Cached by Mill for the life of
-   * the build server (or until inputs invalidate it); Mill calls
-   * `MarklitDaemonClient.close()` on displacement, which sends a `shutdown`
-   * RPC and tears down the helper JVM.
-   *
-   * Inputs are intentionally narrow — `marklitCliJar` and the idle-timeout
-   * setting. Changing the docs module's classpath or sources should NOT spin
-   * up a new daemon; the per-request `compile-document` payload carries those.
-   */
+  /** Long-lived RPC client to a marklit daemon. Cached by Mill for the life of
+    * the build server (or until inputs invalidate it); Mill calls
+    * `MarklitDaemonClient.close()` on displacement, which sends a `shutdown`
+    * RPC and tears down the helper JVM.
+    *
+    * Inputs are intentionally narrow — `marklitCliJar` and the idle-timeout
+    * setting. Changing the docs module's classpath or sources should NOT spin
+    * up a new daemon; the per-request `compile-document` payload carries those.
+    */
   def marklitDaemon: Worker[MarklitDaemonClient] = Task.Worker {
     new MarklitDaemonClient(
       marklitCliJar().path,
@@ -166,22 +164,32 @@ trait MarklitModule extends ScalaModule {
     )
   }
 
-  /**
-   * Path to the marklit CLI jar.
-   * By default, extracts the bundled jar from plugin resources.
-   */
+  /** Path to the marklit CLI jar. By default, extracts the bundled jar from
+    * plugin resources.
+    */
   private def marklitCliJar: T[PathRef] = Task {
     val dest = Task.dest / "marklit-cli.jar"
     // Try multiple classloader strategies to find the resource
-    val resourceStream = Option(classOf[MarklitModule].getResourceAsStream("/marklit-cli.jar"))
-      .orElse(Option(classOf[MarklitModule].getClassLoader.getResourceAsStream("marklit-cli.jar")))
-      .orElse(Option(Thread.currentThread.getContextClassLoader.getResourceAsStream("marklit-cli.jar")))
-      .getOrElse {
-        throw new Exception(
-          "marklit-cli.jar not found in plugin resources. " +
-            "Plugin may not be packaged correctly."
+    val resourceStream =
+      Option(classOf[MarklitModule].getResourceAsStream("/marklit-cli.jar"))
+        .orElse(
+          Option(
+            classOf[MarklitModule].getClassLoader
+              .getResourceAsStream("marklit-cli.jar")
+          )
         )
-      }
+        .orElse(
+          Option(
+            Thread.currentThread.getContextClassLoader
+              .getResourceAsStream("marklit-cli.jar")
+          )
+        )
+        .getOrElse {
+          throw new Exception(
+            "marklit-cli.jar not found in plugin resources. " +
+              "Plugin may not be packaged correctly."
+          )
+        }
     try {
       os.write(dest, resourceStream)
     } finally {
@@ -190,10 +198,9 @@ trait MarklitModule extends ScalaModule {
     PathRef(dest)
   }
 
-  /**
-   * Generate markdown documentation with executed code output.
-   * Output is written to the task destination directory.
-   */
+  /** Generate markdown documentation with executed code output. Output is
+    * written to the task destination directory.
+    */
   def marklitGenerate: T[Seq[PathRef]] = Task {
     val sourceDir = marklitSourceDir().path
     val targetDir = Task.dest
@@ -207,6 +214,7 @@ trait MarklitModule extends ScalaModule {
     val verbose = marklitVerbose()
     val scalaVer = scalaVersion()
     val cacheDirOpt = marklitCacheDir().map(_.path.toString)
+    val pageScope = marklitPageScope()
     val daemonOpt =
       if (marklitDaemonEnabled()) Some(marklitDaemon()) else None
 
@@ -235,7 +243,8 @@ trait MarklitModule extends ScalaModule {
           daemon = daemonOpt,
           taskLabel = "generation",
           log = Task.log,
-          cacheDir = cacheDirOpt
+          cacheDir = cacheDirOpt,
+          pageScope = pageScope
         )
 
         sources.map(source => PathRef(targetDir / source.last))
@@ -243,9 +252,8 @@ trait MarklitModule extends ScalaModule {
     }
   }
 
-  /**
-   * Check that markdown code blocks compile without generating output.
-   */
+  /** Check that markdown code blocks compile without generating output.
+    */
   def marklitCheck: T[Unit] = Task {
     val sourceDir = marklitSourceDir().path
     val cliJar = marklitCliJar().path
@@ -256,6 +264,7 @@ trait MarklitModule extends ScalaModule {
     val verbose = marklitVerbose()
     val scalaVer = scalaVersion()
     val cacheDirOpt = marklitCacheDir().map(_.path.toString)
+    val pageScope = marklitPageScope()
     val daemonOpt =
       if (marklitDaemonEnabled()) Some(marklitDaemon()) else None
 
@@ -282,7 +291,8 @@ trait MarklitModule extends ScalaModule {
           daemon = daemonOpt,
           taskLabel = "check",
           log = Task.log,
-          cacheDir = cacheDirOpt
+          cacheDir = cacheDirOpt,
+          pageScope = pageScope
         )
       }
     }
@@ -307,7 +317,8 @@ trait MarklitModule extends ScalaModule {
       daemon: Option[MarklitDaemonClient],
       taskLabel: String,
       log: mill.api.daemon.Logger,
-      cacheDir: Option[String]
+      cacheDir: Option[String],
+      pageScope: Boolean
   ): Unit = {
     val sep = java.io.File.pathSeparator
     val cpStr = if (classpath.isEmpty) None else Some(classpath.mkString(sep))
@@ -328,15 +339,17 @@ trait MarklitModule extends ScalaModule {
             classpath2 = cpFor("2"),
             classpath3 = cpFor("3"),
             scalaVersion = Some(scalaVer),
-            cacheDir = cacheDir
+            cacheDir = cacheDir,
+            pageScope = pageScope
           )
           ack match {
-            case None => ()
+            case None          => ()
             case Some(message) =>
               throw new Exception(s"marklit $taskLabel failed: $message")
           }
         } catch {
-          case e: Exception if e.getMessage != null && e.getMessage.startsWith(
+          case e: Exception
+              if e.getMessage != null && e.getMessage.startsWith(
                 "marklit " + taskLabel
               ) =>
             throw e
@@ -357,7 +370,8 @@ trait MarklitModule extends ScalaModule {
               check,
               taskLabel,
               log,
-              cacheDir
+              cacheDir,
+              pageScope
             )
         }
       case None =>
@@ -374,7 +388,8 @@ trait MarklitModule extends ScalaModule {
           check,
           taskLabel,
           log,
-          cacheDir
+          cacheDir,
+          pageScope
         )
     }
   }
@@ -392,7 +407,8 @@ trait MarklitModule extends ScalaModule {
       check: Boolean,
       taskLabel: String,
       log: mill.api.daemon.Logger,
-      cacheDir: Option[String]
+      cacheDir: Option[String],
+      pageScope: Boolean
   ): Unit = {
     val sep = java.io.File.pathSeparator
     val args = Seq.newBuilder[String]
@@ -427,16 +443,20 @@ trait MarklitModule extends ScalaModule {
       args += "--show-warnings"
       args += showWarnings.toString
     }
+    if (pageScope) args += "--page-scope"
     if (verbose) args += "--verbose"
     args ++= sources.map(_.toString)
 
     val result =
-      os.proc(args.result()).call(check = false, stderr = os.Pipe, stdout = os.Pipe)
+      os.proc(args.result())
+        .call(check = false, stderr = os.Pipe, stdout = os.Pipe)
 
     if (result.exitCode != 0) {
       log.error(s"marklit stdout: ${result.out.text()}")
       log.error(s"marklit stderr: ${result.err.text()}")
-      throw new Exception(s"marklit $taskLabel failed with exit code ${result.exitCode}")
+      throw new Exception(
+        s"marklit $taskLabel failed with exit code ${result.exitCode}"
+      )
     }
   }
 }

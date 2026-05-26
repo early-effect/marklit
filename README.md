@@ -204,6 +204,22 @@ println(validate(User("Bob", -1)))
 
 Cross-version `extends` is rejected: a `scala=3` scope cannot extend a `scala=2` scope.
 
+### Page scope (mdoc-style sharing, opt-in at the build level)
+
+For small, focused documents where every block builds on the previous one, the explicit-id discipline can be noise. **Page scope** is a build-level flag that makes every anonymous block in a file share state, exactly as if you'd written `id=__page__<scala-version>` on the first one and `extends=__page__<scala-version>,append` on the rest.
+
+Enable it once:
+
+- **sbt:** `marklitPageScope := true`
+- **Mill:** `def marklitPageScope = true`
+- **CLI:**  `marklit --page-scope ...`
+
+Then anonymous blocks in the same file (per Scala version) accumulate state without any modifiers. Page scope only rewrites anonymous blocks — `id=`, `extends=`, `passthrough`, `shared`, `fail`, `crash`, and `warn` always win. See [examples/base/src/main/markdown/page-scope.md](examples/base/src/main/markdown/page-scope.md) for a worked example.
+
+If you want to render some files page-scoped and others isolated within the same project, define a sibling task (sbt) or module (Mill) that overrides `marklitPageScope` and points `marklitSourceDirectory` (or `marklitSourceDir` in Mill) at a different folder — both build tools let you reconfigure plugin tasks freely. There's no need to choose one mode for the whole build.
+
+Default remains off: marklit's per-block isolation is the better default for reference docs where each block stands alone. Flip page scope on per-project, per-module, or per-task when the document genuinely reads as one continuous session.
+
 ## Build tool integration
 
 ### sbt
@@ -286,6 +302,7 @@ Common flags:
 | `--repos`, `-r` | Extra Maven repositories. |
 | `--no-show-version` | Suppress the `// Scala x.y.z` annotation on output blocks. |
 | `--cache-dir` | Persistent on-disk block cache directory (off by default; both build plugins enable it automatically). |
+| `--page-scope` | Share scope across all anonymous blocks in each file (per Scala version). Off by default. |
 | `--verbose`, `-v` | Verbose logging. |
 
 You can also declare dependencies inline in a Markdown file using [scala-cli](https://scala-cli.virtuslab.org/) `using` directives:

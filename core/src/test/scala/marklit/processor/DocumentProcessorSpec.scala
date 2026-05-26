@@ -47,7 +47,9 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         priorCode: Vector[String],
         isZIOApp: Boolean,
         scalaVersion: Option[String],
-        location: Option[Location]
+        location: Option[Location],
+        scopeConfig: ScopeConfig,
+        scopeMode: ScopeMode
     ): IO[MarklitError, CompileResult] =
       compileCalls += ((code, priorCode))
       compileCallsWithVersion += ((code, priorCode, scalaVersion))
@@ -389,9 +391,12 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
     ),
 
     suite("scope integration")(
-      test("blocks in same scope accumulate code") {
+      test("anonymous blocks do not see each other's code") {
+        // README: each block is a fresh scope unless you opt in via id=.
+        // Two anon blocks must compile independently; the second block must
+        // NOT see the first block's `val x = 1` as prior code.
         val block1 = makeBlock("val x = 1")
-        val block2 = makeBlock("val y = x + 1")
+        val block2 = makeBlock("val y = 2")
         val compiler = new TestCompiler()
 
         for
@@ -399,9 +404,8 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           processor = DocumentProcessorLive(scopeManager, compiler)
           _ <- processor.process(Vector(block1, block2))
         yield
-          // Second block should have first block's code as prior
           val (_, priorCode) = compiler.compileCalls(1)
-          assertTrue(priorCode == Vector("val x = 1"))
+          assertTrue(priorCode.isEmpty)
       },
 
       test("named scope isolates code") {
@@ -483,6 +487,152 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
               "items = items :+ \"b\""
             )
           )
+      }
+    ),
+
+    suite("page scope (CLI/plugin opt-in)")(
+      test("anonymous blocks share state under page scope") {
+        // The opt-in is meant to be equivalent to the user manually writing
+        // `id=__page__<v>` on the first block and `extends=__page__<v>,append`
+        // on every subsequent block. Verify by compile-call inspection: the
+        // second block must see the first block's code as prior.
+        val block1 = makeBlock("val x = 1")
+        val block2 = makeBlock("println(x)")
+        val compiler = new TestCompiler()
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(
+            scopeManager,
+            compiler,
+            scopeMode = ScopeMode.Page
+          )
+          _ <- processor.process(Vector(block1, block2))
+        yield
+          val (_, prior2) = compiler.compileCalls(1)
+          assertTrue(
+            compiler.compileCalls(0)._2.isEmpty,
+            prior2 == Vector("val x = 1")
+          )
+      },
+
+      test("page scope off keeps blocks isolated (regression)") {
+        // Sanity check that the default (Isolated) path is unchanged
+        // — same fixture as the one above but without the opt-in.
+        val block1 = makeBlock("val x = 1")
+        val block2 = makeBlock("println(x)")
+        val compiler = new TestCompiler()
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          _ <- processor.process(Vector(block1, block2))
+        yield
+          val (_, prior2) = compiler.compileCalls(1)
+          assertTrue(prior2.isEmpty)
+      },
+
+      test("explicit id= opts a block out of the page scope") {
+        // A user-named scope must keep its own identity — page-scope only
+        // rewrites blocks that have NO scope config of their own.
+        val block1 = makeBlock("val x = 1")
+        val block2 = makeBlock(
+          "val y = 2",
+          scopeConfig = ScopeConfig(id = Some("mine"))
+        )
+        val block3 = makeBlock("println(x)")
+        val compiler = new TestCompiler()
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(
+            scopeManager,
+            compiler,
+            scopeMode = ScopeMode.Page
+          )
+          _ <- processor.process(Vector(block1, block2, block3))
+        yield
+          val (_, prior2) = compiler.compileCalls(1)
+          val (_, prior3) = compiler.compileCalls(2)
+          assertTrue(
+            // Named scope is fresh — does NOT pull in the page-scope's `val x`.
+            prior2.isEmpty,
+            // Block3 still sees the page scope's `val x`, NOT block2's `val y`.
+            prior3 == Vector("val x = 1")
+          )
+      },
+
+      test("fail / crash / warn / shared blocks bypass the page scope") {
+        // These all carry semantics that would be wrong under shared scope:
+        // a `fail` block's broken code must not pollute later blocks; a `warn`
+        // block's deprecated def must not become reachable from elsewhere; a
+        // `shared` block already lives in the per-version default. Verify by
+        // confirming none of them affect the next anonymous block's prior
+        // code.
+        val anon = makeBlock("val first = 1")
+        val failBlock = makeBlock(
+          "val bad: Int = \"oops\"",
+          modifiers = Set(Modifier.Fail)
+        )
+        val warnBlock = makeBlock(
+          "@deprecated(\"x\", \"1\") def d() = (); d()",
+          modifiers = Set(Modifier.Warn)
+        )
+        val tail = makeBlock("println(first)")
+        val compiler = new TestCompiler(
+          // The fail block needs a non-success result so the assertion logic
+          // treats it as expected failure rather than surprise success.
+          compileResults = Map(
+            "val bad: Int = \"oops\"" -> CompileResult(
+              success = false,
+              diagnostics = Nil
+            )
+          )
+        )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(
+            scopeManager,
+            compiler,
+            scopeMode = ScopeMode.Page
+          )
+          _ <- processor.process(Vector(anon, failBlock, warnBlock, tail))
+        yield
+          val (_, priorTail) = compiler.compileCalls(3)
+          assertTrue(
+            // tail sees only the first anon block's code, not fail's or warn's.
+            priorTail == Vector("val first = 1")
+          )
+      },
+
+      test("page-scoped blocks surface executionOutput in BlockResult") {
+        // Regression: page-scope blocks were rendering with no output because
+        // their executionOutput wasn't propagating to BlockResult. Each
+        // anonymous block runs its own `println` and should yield the matching
+        // output string.
+        val block1 = makeBlock("val items = List(1,2,3)\nprintln(items.size)")
+        val block2 = makeBlock("println(items.sum)")
+        val compiler = new TestCompiler(
+          executeResults = Map(
+            "val items = List(1,2,3)\nprintln(items.size)" -> "3\n",
+            "println(items.sum)" -> "6\n"
+          )
+        )
+
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(
+            scopeManager,
+            compiler,
+            scopeMode = ScopeMode.Page
+          )
+          result <- processor.process(Vector(block1, block2))
+        yield assertTrue(
+          result.blockResults.size == 2,
+          result.blockResults(0).executionOutput == Some("3\n"),
+          result.blockResults(1).executionOutput == Some("6\n")
+        )
       }
     ),
 
@@ -713,7 +863,11 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
             priorB.isEmpty
           )
       },
-      test("same-version blocks accumulate in their version's default scope") {
+      test("same-version anon blocks do not share state") {
+        // Same-version anon blocks each get their own fresh scope (parented
+        // to the per-version default for shared-block inheritance only).
+        // Two such blocks compile independently — the second must not see
+        // the first block's `val a = 1`.
         val a = makeBlock(
           "val a = 1",
           scopeConfig = ScopeConfig(scalaVersion = Some("3.7.3"))
@@ -732,7 +886,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
           val priorB = compiler.compileCalls(1)._2
           assertTrue(
             result.isSuccess,
-            priorB == Vector("val a = 1")
+            priorB.isEmpty
           )
       }
     ),
@@ -806,7 +960,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         for
           scopeManager <- ZIO.service[ScopeManager]
           processor = DocumentProcessorLive(scopeManager, compiler)
-          result <- processor.process(Vector(s3, a, b))
+          _ <- processor.process(Vector(s3, a, b))
         yield
           val priorA = compiler.compileCalls(1)._2
           // The 2.13 block is filtered out (bare-major mismatch w/ default

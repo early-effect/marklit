@@ -16,6 +16,9 @@ object MarklitPlugin extends AutoPlugin {
     val marklitShowWarnings =
       settingKey[Boolean]("Render compile warnings in output blocks")
     val marklitVerbose = settingKey[Boolean]("Enable verbose output")
+    val marklitPageScope = settingKey[Boolean](
+      "Share scope across all anonymous blocks in each file (default: false)"
+    )
 
     // Daemon settings — when enabled, marklit tasks talk to a long-lived
     // marklit JVM that survives across task invocations within the sbt
@@ -282,6 +285,7 @@ object MarklitPlugin extends AutoPlugin {
     marklitShowVersion := true,
     marklitShowWarnings := true,
     marklitVerbose := false,
+    marklitPageScope := false,
     marklitDaemon := true,
     marklitDaemonIdleTimeout := 900L,
     marklitCacheDirectory := Some(target.value / "marklit-cache"),
@@ -297,6 +301,7 @@ object MarklitPlugin extends AutoPlugin {
       val scalaVer = scalaVersion.value
       val majorCps = marklitMajorClasspaths.value
       val cacheDir = marklitCacheDirectory.value
+      val pageScope = marklitPageScope.value
       val daemon =
         if (marklitDaemon.value)
           Some(
@@ -327,7 +332,8 @@ object MarklitPlugin extends AutoPlugin {
               log,
               majorCps,
               daemon,
-              cacheDir
+              cacheDir,
+              pageScope
             )
           if (exitCode != 0) {
             throw new MessageOnlyException(
@@ -351,6 +357,7 @@ object MarklitPlugin extends AutoPlugin {
       val scalaVer = scalaVersion.value
       val majorCps = marklitMajorClasspaths.value
       val cacheDir = marklitCacheDirectory.value
+      val pageScope = marklitPageScope.value
       val daemon =
         if (marklitDaemon.value)
           Some(
@@ -387,7 +394,8 @@ object MarklitPlugin extends AutoPlugin {
             log,
             majorCps,
             daemon,
-            cacheDir
+            cacheDir,
+            pageScope
           )
           if (exitCode != 0) {
             throw new MessageOnlyException(

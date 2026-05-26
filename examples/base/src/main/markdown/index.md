@@ -21,6 +21,10 @@ type-checked, run, and the output spliced back into the markdown.
 5. **[zio-example.md](zio-example.md)** — worked recipe using
    `marklit:zio-app` plus named scopes to assemble a small ZIO service.
 
+For the opt-in page-scope feature (anonymous blocks sharing state
+mdoc-style), see the dedicated `markdown-page-scope/tour.md` tree
+rendered by the `pageDocs` module.
+
 ## Modifier quick reference
 
 Modifiers are bare words in the fenced info string, prefixed with

@@ -11,24 +11,48 @@ object ScopeManagerSpec extends ZIOSpecDefault:
 
   def spec = suite("ScopeManager")(
     suite("default scope")(
-      test("uses default scope when no config provided") {
+      test("anon block (no config) gets a fresh scope parented to default") {
+        // README: "By default each block gets a fresh anonymous scope. Code
+        // blocks do not share state unless you tell them to."
         for resolved <- ScopeManager.resolveScope(
             ScopeConfig.empty,
             testLocation
           )
         yield assertTrue(
-          resolved.scope.id == MarklitScope.defaultId,
+          resolved.scope.id.startsWith("__anon_"),
+          resolved.scope.parent == Some(MarklitScope.defaultId),
           resolved.inheritedCode.isEmpty
         )
       },
 
-      test("accumulates code in default scope across blocks") {
+      test("two anon blocks do NOT see each other's code") {
         for
           r1 <- ScopeManager.resolveScope(ScopeConfig.empty, testLocation)
+          // Even if a previous block's code were recorded into its
+          // throwaway scope, the next anon block must not see it.
           _ <- ScopeManager.recordCode(r1.scope.id, "val x = 1")
           r2 <- ScopeManager.resolveScope(ScopeConfig.empty, testLocation)
         yield assertTrue(
-          r2.scope.priorCode == Vector("val x = 1")
+          r1.scope.id != r2.scope.id,
+          r2.inheritedCode.isEmpty,
+          r2.scope.priorCode.isEmpty
+        )
+      },
+
+      test("anon block inherits seeded shared blocks for its version") {
+        // `shared` / `shared-{mv}` is the documented opt-in for code that
+        // should land in every anon block of a given version.
+        for
+          _ <- ScopeManager.seedDefaultPriorCode("3.7.3", "val helper = 99")
+          resolved <- ScopeManager.resolveScope(
+            ScopeConfig.empty,
+            testLocation,
+            effectiveVersion = Some("3.7.3")
+          )
+        yield assertTrue(
+          resolved.scope.id.startsWith("__anon_"),
+          resolved.scope.parent == Some(MarklitScope.defaultIdFor("3.7.3")),
+          resolved.inheritedCode == Vector("val helper = 99")
         )
       }
     ),

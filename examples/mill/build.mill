@@ -39,3 +39,21 @@ object docs extends ScalaModule with MarklitModule {
 
   override def marklitVerbose = true
 }
+
+// `pageDocs` demonstrates the per-module override pattern: the same plugin
+// is reconfigured (different source dir, page-scope on) so that one module
+// renders mdoc-style page-scoped docs while `docs` keeps the per-block
+// isolated default. Run both with `mill docs.marklitGenerate` and
+// `mill pageDocs.marklitGenerate`.
+object pageDocs extends ScalaModule with MarklitModule {
+  def scalaVersion = scala3
+  override def moduleDeps = Seq(core(scala3))
+  override def marklitCrossModuleDeps = core.crossModules
+
+  override def marklitSourceDir = Task.Source(
+    moduleDir / os.up / os.up / "base" / "src" / "main" / "markdown-page-scope"
+  )
+
+  override def marklitPageScope = true
+  override def marklitVerbose = true
+}

@@ -57,7 +57,8 @@ object DaemonProtocol:
       dependencies: List[String] = Nil,
       repositories: List[String] = Nil,
       scalaVersion: Option[String] = None,
-      cacheDir: Option[String] = None
+      cacheDir: Option[String] = None,
+      pageScope: Boolean = false
   )
   object CompileParams:
     given JsonCodec[CompileParams] = DeriveJsonCodec.gen[CompileParams]

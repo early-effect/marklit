@@ -92,6 +92,31 @@ object MarkdownRendererSpec extends ZIOSpecDefault:
         )
       },
 
+      test("renders output for page-scoped block (extends=...,append)") {
+        // Regression: rendered tour.md from `marklitPageScope := true` showed
+        // anonymous blocks with no output. After page-scope rewrite, blocks
+        // 2..N have `scopeConfig = (extendsScope=__page__<v>, append=true)`;
+        // the renderer must still emit their executionOutput.
+        val block = makeBlock(
+          "println(\"hello\")",
+          scopeConfig = ScopeConfig(
+            extendsScope = Some("__page__3.8.2"),
+            append = true
+          )
+        )
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val blockResult = makeBlockResult(block, output = Some("hello\n"))
+        val result =
+          DocumentResult(Vector(blockResult), java.time.Duration.ZERO)
+
+        val rendered = MarkdownRenderer.render(doc, result)
+
+        assertTrue(rendered.contains("hello"))
+      },
+
       test("annotates output block with effective Scala version when present") {
         val block = makeBlock("println(\"hi\")")
         val doc = ParsedDocument(
@@ -303,7 +328,9 @@ object MarkdownRendererSpec extends ZIOSpecDefault:
     ),
 
     suite("compile warning rendering")(
-      test("normal block + warnings + global flag on (default) renders warning before output") {
+      test(
+        "normal block + warnings + global flag on (default) renders warning before output"
+      ) {
         val block = makeBlock("oldMethod()")
         val doc = ParsedDocument(
           segments = Vector(MarkdownSegment.Code(block)),
@@ -327,7 +354,7 @@ object MarkdownRendererSpec extends ZIOSpecDefault:
         val rendered = MarkdownRenderer.render(doc, result)
 
         val warningIdx = rendered.indexOf("method oldMethod is deprecated")
-        val outputIdx  = rendered.indexOf("old\n")
+        val outputIdx = rendered.indexOf("old\n")
         assertTrue(
           rendered.contains("warning: method oldMethod is deprecated"),
           rendered.contains("old"),
@@ -520,7 +547,7 @@ object MarkdownRendererSpec extends ZIOSpecDefault:
 
         val rendered = MarkdownRenderer.renderMerged(doc, merged)
         val warningIdx = rendered.indexOf("method oldMethod is deprecated")
-        val outputIdx  = rendered.indexOf("old\n")
+        val outputIdx = rendered.indexOf("old\n")
         assertTrue(
           rendered.contains("warning: method oldMethod is deprecated"),
           warningIdx >= 0,

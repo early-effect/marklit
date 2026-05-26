@@ -212,7 +212,8 @@ object Daemon:
       scalaVersion = params.scalaVersion,
       daemon = false,
       idleTimeoutSeconds = None,
-      cacheDir = params.cacheDir.map(Paths.get(_))
+      cacheDir = params.cacheDir.map(Paths.get(_)),
+      pageScope = params.pageScope
     )
 
   private def writeResponse(resp: Response): ZIO[Any, Throwable, Unit] =

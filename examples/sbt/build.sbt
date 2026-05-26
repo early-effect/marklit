@@ -52,9 +52,27 @@ lazy val docs = project
     // before the docs task, so a fresh checkout works with a single command.
   )
 
+// `pageDocs` shows the per-task override pattern: the same plugin is
+// reconfigured (different source directory, page-scope on, different
+// output dir) so that one project renders mdoc-style page-scoped docs
+// while `docs` keeps the per-block isolated default. Run both with
+// `sbt marklitGenerate` (the build-level command iterates every
+// MarklitPlugin-enabled project that has a source directory).
+lazy val pageDocs = project
+  .in(file("page-docs"))
+  .dependsOn(core)
+  .settings(
+    name := "marklit-example-page-docs",
+    scalaVersion := scala3,
+    marklitSourceDirectory := (ThisBuild / baseDirectory).value.getParentFile / "base" / "src" / "main" / "markdown-page-scope",
+    marklitTargetDirectory := baseDirectory.value / "target" / "page-docs",
+    marklitPageScope := true,
+    marklitVerbose := true
+  )
+
 lazy val root = project
   .in(file("."))
-  .aggregate(core, docs)
+  .aggregate(core, docs, pageDocs)
   .settings(
     name := "marklit-sbt-example",
     publish / skip := true

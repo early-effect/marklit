@@ -53,7 +53,8 @@ private[sbt] final class MarklitDaemonClient(
       classpath2: Option[String],
       classpath3: Option[String],
       scalaVersion: Option[String],
-      cacheDir: Option[String]
+      cacheDir: Option[String],
+      pageScope: Boolean
   ): Option[String] = rpcLock.synchronized {
     val daemon = ensureAlive()
     val request = MarklitJson.compileDocumentRequest(
@@ -67,7 +68,8 @@ private[sbt] final class MarklitDaemonClient(
       classpath2 = classpath2,
       classpath3 = classpath3,
       scalaVersion = scalaVersion,
-      cacheDir = cacheDir
+      cacheDir = cacheDir,
+      pageScope = pageScope
     )
     sendRequest(daemon, request)
     parseAck(readResponse(daemon))

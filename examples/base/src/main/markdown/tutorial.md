@@ -19,22 +19,23 @@ val greeting = "Hello, Marklit!"
 println(greeting)
 ```
 
-## Sequential blocks share context
+## Sharing state with named scopes
 
-Within the default (unnamed) scope, definitions accumulate across blocks.
-You can build up state top-to-bottom:
+Each block is its own scope by default — definitions in one block do
+**not** leak into the next. To build up state across blocks, name the
+first one with `id=` and have follow-ups `extends=` it:
 
-```scala
+```scala marklit:id=people
 case class Person(name: String, age: Int)
 ```
 
-```scala
+```scala marklit:extends=people
 val alice = Person("Alice", 30)
 println(s"${alice.name} is ${alice.age} years old")
 ```
 
-For *named* scopes (which give you isolation and explicit reuse via
-`id=` / `extends=`), see
+For the full scope-mechanics tour (multi-level inheritance, `append`,
+per-version scopes), see
 [scopes-and-versions.md](scopes-and-versions.md).
 
 ## `silent`: hide output, keep code
@@ -43,29 +44,31 @@ For *named* scopes (which give you isolation and explicit reuse via
 runtime output. Useful when the output is noisy and you only care about
 the code shape:
 
-```scala marklit:silent
+```scala marklit:silent,id=secret
 val secretValue = 42
 println("This output is hidden")
 ```
 
-The value is still in scope downstream:
+Pair `silent` with `id=` so a follow-up block can reach the value:
 
-```scala
+```scala marklit:extends=secret
 println(s"The secret is: $secretValue")
 ```
 
 ## `invisible`: hide everything
 
-`marklit:invisible` hides both the source and the output. Use for setup
-that the reader shouldn't be distracted by:
+`marklit:invisible` hides both the source and the output. Pair it with
+`id=` for setup that the reader shouldn't be distracted by but follow-up
+blocks need to reach:
 
-```scala marklit:invisible
+```scala marklit:invisible,id=setup
 val setupData = List("configured", "hidden", "setup")
 ```
 
-The invisible block defined `setupData`, which we use here:
+The invisible block defined `setupData`, which we use here via
+`extends=`:
 
-```scala
+```scala marklit:extends=setup
 println(setupData.mkString(", "))
 ```
 

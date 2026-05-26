@@ -84,7 +84,6 @@ object InfoStringParser:
       case "false" => Some(false)
       case _       => None
 
-
   /** Parse an info string into modifiers and scope config */
   def parse(info: String): ParsedInfoString =
     fastparse.parse(info.trim, infoString(using _)) match

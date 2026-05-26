@@ -1,10 +1,21 @@
 package marklit
 
+import marklit.compiler.CompilerFactory
 import marklit.model.*
 import zio.*
 import zio.test.*
 
 object MarklitSpec extends ZIOSpecDefault:
+
+  /** Layer that configures Marklit with `ScopeMode.Page` — the CLI/plugin
+    * opt-in that makes anonymous blocks share state per file. The default
+    * [[Marklit.layer]] uses `ScopeMode.Isolated`.
+    */
+  private val pageScopeLayer: ZLayer[Any, Throwable, Marklit] =
+    CompilerFactory.layer >>> Marklit.liveWithFactory(
+      defaultScalaVersion = CompilerFactory.defaultScalaVersion,
+      scopeMode = ScopeMode.Page
+    )
 
   def spec = suite("Marklit")(
     suite("end-to-end processing")(
@@ -29,12 +40,15 @@ object MarklitSpec extends ZIOSpecDefault:
       },
 
       test("processes document with multiple blocks in same scope") {
+        // Default (isolated) mode requires explicit id/extends to share —
+        // anonymous blocks no longer carry state to each other. This test
+        // pins the named-scope sharing path.
         val content =
-          """```scala
+          """```scala marklit:id=base
             |val base = 10
             |```
             |
-            |```scala
+            |```scala marklit:extends=base,append
             |val doubled = base * 2
             |println(doubled)
             |```
@@ -54,14 +68,16 @@ object MarklitSpec extends ZIOSpecDefault:
         // Regression: when compile and execute run as separate adapter calls,
         // they must agree on the priorCode-replay marker. A fresh marker on
         // each call would leak the literal "__MARKLIT_<...>__" into the
-        // rendered output of every non-first block.
+        // rendered output of every non-first block. Uses named-scope chaining
+        // so the second block has non-empty priorCode (the marker only fires
+        // when priorCode is non-empty).
         val content =
-          """```scala
+          """```scala marklit:id=ctx
             |val first = 1
             |println("first")
             |```
             |
-            |```scala
+            |```scala marklit:extends=ctx,append
             |println(s"second sees $first")
             |```
             |""".stripMargin
@@ -183,11 +199,11 @@ object MarklitSpec extends ZIOSpecDefault:
 
       test("handles invisible modifier") {
         val content =
-          """```scala marklit:invisible
+          """```scala marklit:invisible,id=setup
             |val setupValue = 999
             |```
             |
-            |```scala
+            |```scala marklit:extends=setup,append
             |println(setupValue)
             |```
             |""".stripMargin
@@ -254,7 +270,7 @@ object MarklitSpec extends ZIOSpecDefault:
             |
             |Here's a simple example:
             |
-            |```scala
+            |```scala marklit:id=alice
             |case class Person(name: String, age: Int)
             |val alice = Person("Alice", 30)
             |println(s"Hello, ${alice.name}!")
@@ -262,7 +278,7 @@ object MarklitSpec extends ZIOSpecDefault:
             |
             |You can also use pattern matching with Scala 3 indentation syntax:
             |
-            |```scala
+            |```scala marklit:extends=alice,append
             |alice match
             |  case Person(name, age) if age >= 18 =>
             |    println(s"$name is an adult")
@@ -329,7 +345,205 @@ object MarklitSpec extends ZIOSpecDefault:
             .exists(_.contains("big"))
         )
       }
-    )
-  ).provide(Marklit.layer) @@ TestAspect.sequential @@ TestAspect.timeout(
+    ).provide(Marklit.layer),
+    suite("page scope (real compiler)")(
+      test("two anonymous page-scoped blocks both produce executionOutput") {
+        // Regression: rendered tour.md showed page-scoped blocks with no
+        // output. Each block has its own println; both outputs must reach
+        // BlockResult.executionOutput.
+        val content =
+          """```scala
+            |val items = List(1, 2, 3)
+            |println(s"first sees ${items.size} items")
+            |```
+            |
+            |```scala
+            |println(s"second sees ${items.sum} as the sum")
+            |```
+            |""".stripMargin
+
+        for result <- Marklit.processContent(content, "test.md")
+        yield
+          val outputs =
+            result.processingResult.blockResults.flatMap(_.executionOutput)
+          assertTrue(
+            result.isSuccess,
+            outputs.exists(_.contains("first sees 3 items")),
+            outputs.exists(_.contains("second sees 6 as the sum"))
+          )
+      },
+      test(
+        "second page-scoped block introducing a new val produces output"
+      ) {
+        // Pin: page-scoped block 1 introduces `val totalLetters = ...` —
+        // mirroring tour.md exactly. Block 1's output must reach
+        // BlockResult.executionOutput.
+        val content =
+          """```scala
+            |val items = List("apples", "pears", "plums")
+            |println(s"have ${items.size} kinds of fruit")
+            |```
+            |
+            |```scala
+            |val totalLetters = items.map(_.length).sum
+            |println(s"$totalLetters letters across ${items.size} items")
+            |```
+            |""".stripMargin
+
+        for result <- Marklit.processContent(content, "test.md")
+        yield
+          val outs = result.processingResult.blockResults.map(_.executionOutput)
+          assertTrue(
+            result.isSuccess,
+            outs(0).exists(_.contains("have 3 kinds of fruit")),
+            outs(1).exists(_.contains("16 letters across 3 items"))
+          )
+      },
+      test("page-scoped block followed by explicit-id block: both render") {
+        // Reproducing the bug seen in examples/sbt/page-docs/target/page-docs/
+        // tour.md: pages with a page-scoped block followed by an
+        // explicit-id (page-scope-opt-out) block. The opt-out renders, but
+        // the page-scoped block above it does not. This test pins down which
+        // executionOutputs exist on BlockResult.
+        val content =
+          """```scala
+            |val items = List(1, 2, 3)
+            |println(s"have ${items.size} items")
+            |```
+            |
+            |```scala marklit:id=isolated
+            |val x = 99
+            |println(s"isolated: $x")
+            |```
+            |
+            |```scala
+            |println(s"back to page; items = $items")
+            |```
+            |""".stripMargin
+
+        for result <- Marklit.processContent(content, "test.md")
+        yield
+          val outs = result.processingResult.blockResults.map(_.executionOutput)
+          assertTrue(
+            result.isSuccess,
+            outs(0).exists(_.contains("have 3 items")),
+            outs(1).exists(_.contains("isolated: 99")),
+            outs(2).exists(_.contains("back to page; items = List(1, 2, 3)"))
+          )
+      },
+      test(
+        "rendered output contains println results for tour.md-style content"
+      ) {
+        // Pin: this is the exact shape of examples/.../tour.md that is
+        // currently rendering with no output. Reproduce it through the
+        // renderer that the CLI/plugin uses and assert the println results
+        // appear in the rendered markdown.
+        val content =
+          """## A running tally across blocks
+            |
+            |```scala
+            |val items = List("apples", "pears", "plums")
+            |println(s"have ${items.size} kinds of fruit")
+            |```
+            |
+            |```scala
+            |val totalLetters = items.map(_.length).sum
+            |println(s"$totalLetters letters across ${items.size} items")
+            |```
+            |
+            |```scala marklit:id=independent
+            |val isolated = "I do not see items"
+            |println(isolated)
+            |```
+            |
+            |```scala
+            |println(s"back to the page scope; items = $items")
+            |```
+            |""".stripMargin
+
+        for
+          result <- Marklit.processContent(content, "tour.md")
+          rendered = marklit.renderer.MarkdownRenderer.render(
+            result.document,
+            result.processingResult,
+            marklit.renderer.RenderConfig.default
+          )
+        yield assertTrue(
+          result.isSuccess,
+          rendered.contains("have 3 kinds of fruit"),
+          rendered.contains("16 letters across 3 items"),
+          rendered.contains("I do not see items"),
+          rendered.contains(
+            "back to the page scope; items = List(apples, pears, plums)"
+          )
+        )
+      },
+      test(
+        "BlockResults for tour.md-style content all have executionOutput"
+      ) {
+        // Same content as the rendered-output test above, but assert at the
+        // BlockResult layer rather than the rendered markdown. If this fails,
+        // the bug is in DocumentProcessor / scope resolution. If this passes
+        // and the rendered test still fails, the bug is in MarkdownRenderer.
+        val content =
+          """## A running tally across blocks
+            |
+            |```scala
+            |val items = List("apples", "pears", "plums")
+            |println(s"have ${items.size} kinds of fruit")
+            |```
+            |
+            |```scala
+            |val totalLetters = items.map(_.length).sum
+            |println(s"$totalLetters letters across ${items.size} items")
+            |```
+            |
+            |```scala marklit:id=independent
+            |val isolated = "I do not see items"
+            |println(isolated)
+            |```
+            |
+            |```scala
+            |println(s"back to the page scope; items = $items")
+            |```
+            |""".stripMargin
+
+        for result <- Marklit.processContent(content, "tour.md")
+        yield
+          val outs = result.processingResult.blockResults.map(_.executionOutput)
+          assertTrue(
+            result.isSuccess,
+            outs(0).exists(_.contains("have 3 kinds of fruit")),
+            outs(1).exists(_.contains("16 letters across 3 items")),
+            outs(2).exists(_.contains("I do not see items")),
+            outs(3).exists(_.contains("List(apples, pears, plums)"))
+          )
+      },
+      test("page-scoped block does not leak the priorCode marker") {
+        // When the second block compiles with priorCode=block1, the marker
+        // mechanism must strip the replay output cleanly. A leaked
+        // __MARKLIT_<hex>__ in the output would break rendered docs.
+        val content =
+          """```scala
+            |val x = 41
+            |```
+            |
+            |```scala
+            |println(s"answer = ${x + 1}")
+            |```
+            |""".stripMargin
+
+        for result <- Marklit.processContent(content, "test.md")
+        yield
+          val outputs =
+            result.processingResult.blockResults.flatMap(_.executionOutput)
+          assertTrue(
+            result.isSuccess,
+            outputs.forall(!_.contains("__MARKLIT_")),
+            outputs.exists(_.contains("answer = 42"))
+          )
+      }
+    ).provide(pageScopeLayer)
+  ) @@ TestAspect.sequential @@ TestAspect.timeout(
     60.seconds
   )

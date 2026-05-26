@@ -27,7 +27,8 @@ final case class MarklitOptions(
     scalaVersion: Option[String],
     daemon: Boolean,
     idleTimeoutSeconds: Option[Int],
-    cacheDir: Option[Path] = None
+    cacheDir: Option[Path] = None,
+    pageScope: Boolean = false
 )
 
 object MarklitCli extends ZIOCliDefault:
@@ -73,9 +74,9 @@ object MarklitCli extends ZIOCliDefault:
   // recognized by zio-cli's PrimType.Bool (true/false/yes/no/on/off/1/0).
   private def parseBool(s: String): Option[Boolean] =
     s.toLowerCase match
-      case "true" | "yes" | "on" | "1"   => Some(true)
-      case "false" | "no" | "off" | "0"  => Some(false)
-      case _                             => None
+      case "true" | "yes" | "on" | "1"  => Some(true)
+      case "false" | "no" | "off" | "0" => Some(false)
+      case _                            => None
 
   val showWarningsInOutput: Options[Boolean] =
     Options
@@ -85,7 +86,6 @@ object MarklitCli extends ZIOCliDefault:
         case Some(s) => parseBool(s).getOrElse(true)
         case None    => true
       } ?? "Render compile warnings in output blocks (true/false; default true)"
-
 
   val classpath: Options[Option[String]] =
     Options.text("classpath").alias("cp").optional ??
@@ -138,7 +138,13 @@ object MarklitCli extends ZIOCliDefault:
       .directory("cache-dir", Exists.Either)
       .optional ?? "Directory for the on-disk block compile cache (off by default)"
 
-  // zio-cli's `++` flattens via `Zippable`, so the result is a flat 15-tuple.
+  // --page-scope: opt every anonymous block in every input file into a single
+  // shared scope per file (mdoc-style). Per-block id=/extends= still wins.
+  val pageScope: Options[Boolean] =
+    Options.boolean("page-scope") ??
+      "Share scope across all anonymous blocks in each file (default: each block isolated)"
+
+  // zio-cli's `++` flattens via `Zippable`, so the result is a flat 16-tuple.
   val combinedOptions: Options[
     (
         Option[Path],
@@ -155,10 +161,11 @@ object MarklitCli extends ZIOCliDefault:
         Option[String],
         Boolean,
         Option[Int],
-        Option[Path]
+        Option[Path],
+        Boolean
     )
   ] =
-    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ showWarningsInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion ++ daemon ++ idleTimeoutSeconds ++ cacheDir
+    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ showWarningsInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion ++ daemon ++ idleTimeoutSeconds ++ cacheDir ++ pageScope
 
   // Main command
   val marklitCommand: Command[MarklitOptions] =
@@ -179,7 +186,8 @@ object MarklitCli extends ZIOCliDefault:
           sv,
           d,
           idle,
-          cache
+          cache,
+          ps
         ) =
           opts
         MarklitOptions(
@@ -198,7 +206,8 @@ object MarklitCli extends ZIOCliDefault:
           sv,
           d,
           idle,
-          cache
+          cache,
+          ps
         )
       }
       .withHelp(
@@ -347,8 +356,10 @@ object MarklitCli extends ZIOCliDefault:
       results <- ZIO
         .foreach(perFile) { case (path, directives) =>
           val fileDefault = directives.scalaVersion.getOrElse(cliDefault)
-          val fileScalacOptions =
-            directives.scalacOptions.toVector ++ allScalacOptions
+          // `allScalacOptions` already includes this file's directives via the
+          // flatMap above; the parsed value is itself a ListSet, so duplicates
+          // within a file collapsed at parse time. No further dedup needed.
+          val fileScalacOptions = allScalacOptions
           val absPath = path.toAbsolutePath
           Marklit
             .processFile(absPath)
@@ -358,7 +369,9 @@ object MarklitCli extends ZIOCliDefault:
                 fullClasspath,
                 fileScalacOptions,
                 majorClasspaths,
-                options.cacheDir
+                options.cacheDir,
+                if options.pageScope then marklit.model.ScopeMode.Page
+                else marklit.model.ScopeMode.Isolated
               )
             )
             .mapError(e => new RuntimeException(e.pretty))
