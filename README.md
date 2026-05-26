@@ -359,3 +359,7 @@ sbt test                       # full test suite
 ## Inspiration
 
 marklit owes its shape to [mdoc](https://scalameta.org/mdoc/) and reuses mdoc's modifier vocabulary where it makes sense. The differences — multiple modifiers per block, scope inheritance with append, scoped-by-default semantics, real per-block multi-version compilation, ZIO runtime, cross-built dependency awareness — are the parts worth comparing.
+
+## License
+
+[Apache 2.0](LICENSE)

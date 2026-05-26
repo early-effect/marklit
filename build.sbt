@@ -20,6 +20,26 @@ ThisBuild / scalaVersion := marklitScalaVersion
 ThisBuild / organization := "io.github.russwyte"
 ThisBuild / version := "0.1.0-SNAPSHOT"
 
+ThisBuild / organizationName     := "russwyte"
+ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
+ThisBuild / licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
+ThisBuild / homepage             := Some(url("https://github.com/russwyte/marklit"))
+ThisBuild / scmInfo              := Some(
+  ScmInfo(
+    url("https://github.com/russwyte/marklit"),
+    "scm:git@github.com:russwyte/marklit.git",
+  )
+)
+ThisBuild / developers := List(
+  Developer(
+    id = "russwyte",
+    name = "Russ White",
+    email = "356303+russwyte@users.noreply.github.com",
+    url = url("https://github.com/russwyte"),
+  )
+)
+ThisBuild / versionScheme := Some("early-semver")
+
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
   "-feature",
