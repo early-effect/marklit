@@ -644,5 +644,194 @@ object MarkdownRendererSpec extends ZIOSpecDefault:
         val rendered = MarkdownRenderer.renderMerged(doc, merged, config)
         assertTrue(rendered.contains("method oldMethod is deprecated"))
       }
+    ),
+    suite("scala=shared cross-version rendering")(
+      test(
+        "all-equal outputs render once with 'All cross versions' header"
+      ) {
+        val block = makeBlock("println(6)", Set(Modifier.Shared))
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val execs = Vector(
+          BlockExecution(
+            "3.8.2",
+            Some(CompileResult(success = true, diagnostics = Nil)),
+            Some("6\n"),
+            None
+          ),
+          BlockExecution(
+            "3.7.3",
+            Some(CompileResult(success = true, diagnostics = Nil)),
+            Some("6\n"),
+            None
+          ),
+          BlockExecution(
+            "2.13.16",
+            Some(CompileResult(success = true, diagnostics = Nil)),
+            Some("6\n"),
+            None
+          )
+        )
+        val br = BlockResult(
+          block = block,
+          compileResult = execs.head.compileResult,
+          executionOutput = execs.head.executionOutput,
+          error = None,
+          effectiveScalaVersion = Some("3.8.2"),
+          crossExecutions = execs
+        )
+        val result =
+          DocumentResult(Vector(br), java.time.Duration.ZERO)
+
+        val rendered = MarkdownRenderer.render(doc, result)
+
+        // Single output fence beyond the source fence: total fence count
+        // should be 4 (2 for code, 2 for output).
+        val fenceCount = "```".r.findAllIn(rendered).length
+        assertTrue(
+          rendered.contains("println(6)"),
+          rendered.contains(
+            "// All cross versions: Scala 3.8.2, 3.7.3, 2.13.16"
+          ),
+          rendered.contains("6"),
+          fenceCount == 4,
+          !rendered.contains("// Scala 3.7.3\n6")
+        )
+      },
+      test(
+        "divergent outputs render one labeled block per version"
+      ) {
+        val block = makeBlock("println(getClass.getName)", Set(Modifier.Shared))
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val execs = Vector(
+          BlockExecution(
+            "3.8.2",
+            Some(CompileResult(success = true, diagnostics = Nil)),
+            Some("class A$\n"),
+            None
+          ),
+          BlockExecution(
+            "2.13.16",
+            Some(CompileResult(success = true, diagnostics = Nil)),
+            Some("class A$Lambda\n"),
+            None
+          )
+        )
+        val br = BlockResult(
+          block = block,
+          compileResult = execs.head.compileResult,
+          executionOutput = execs.head.executionOutput,
+          error = None,
+          effectiveScalaVersion = Some("3.8.2"),
+          crossExecutions = execs
+        )
+        val result =
+          DocumentResult(Vector(br), java.time.Duration.ZERO)
+
+        val rendered = MarkdownRenderer.render(doc, result)
+
+        val v1Idx = rendered.indexOf("// Scala 3.8.2")
+        val v2Idx = rendered.indexOf("// Scala 2.13.16")
+        assertTrue(
+          v1Idx > 0,
+          v2Idx > v1Idx,
+          rendered.contains("class A$\n"),
+          rendered.contains("class A$Lambda\n"),
+          !rendered.contains("// All cross versions:")
+        )
+      },
+      test(
+        "divergent path: compile failure on one version surfaces labeled error"
+      ) {
+        val block = makeBlock("scala3Only", Set(Modifier.Shared))
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val execs = Vector(
+          BlockExecution(
+            "3.8.2",
+            Some(CompileResult(success = true, diagnostics = Nil)),
+            Some("ok\n"),
+            None
+          ),
+          BlockExecution(
+            "2.13.16",
+            Some(
+              CompileResult(
+                success = false,
+                diagnostics = List(
+                  ScalaDiagnostic(
+                    DiagnosticSeverity.Error,
+                    "not found: scala3Only",
+                    1,
+                    1,
+                    None
+                  )
+                )
+              )
+            ),
+            None,
+            None
+          )
+        )
+        val br = BlockResult(
+          block = block,
+          compileResult = execs.head.compileResult,
+          executionOutput = execs.head.executionOutput,
+          error = None,
+          effectiveScalaVersion = Some("3.8.2"),
+          crossExecutions = execs
+        )
+        val result =
+          DocumentResult(Vector(br), java.time.Duration.ZERO)
+
+        val rendered = MarkdownRenderer.render(doc, result)
+        assertTrue(
+          rendered.contains("// Scala 3.8.2"),
+          rendered.contains("ok"),
+          rendered.contains("// Scala 2.13.16"),
+          rendered.contains("not found: scala3Only"),
+          !rendered.contains("// All cross versions:")
+        )
+      },
+      test(
+        "single cross-execution still emits 'All cross versions' header"
+      ) {
+        val block = makeBlock("println(1)", Set(Modifier.Shared))
+        val doc = ParsedDocument(
+          segments = Vector(MarkdownSegment.Code(block)),
+          sourceFile = "test.md"
+        )
+        val execs = Vector(
+          BlockExecution(
+            "3.8.2",
+            Some(CompileResult(success = true, diagnostics = Nil)),
+            Some("1\n"),
+            None
+          )
+        )
+        val br = BlockResult(
+          block = block,
+          compileResult = execs.head.compileResult,
+          executionOutput = execs.head.executionOutput,
+          error = None,
+          effectiveScalaVersion = Some("3.8.2"),
+          crossExecutions = execs
+        )
+        val result =
+          DocumentResult(Vector(br), java.time.Duration.ZERO)
+
+        val rendered = MarkdownRenderer.render(doc, result)
+        assertTrue(
+          rendered.contains("// All cross versions: Scala 3.8.2"),
+          rendered.contains("1")
+        )
+      }
     )
   )

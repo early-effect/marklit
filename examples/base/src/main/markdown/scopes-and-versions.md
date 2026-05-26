@@ -90,18 +90,18 @@ runs it on its own classloader, and emits a `// Scala <version>` annotation
 above the rendered output. (Pass `--show-warnings=false` or
 `marklitShowVersion := false` to suppress that annotation.)
 
-The file below uses `shared-3` and `shared-2` setup blocks (see next
-section) so each per-version block has a `reportVersion()` helper in
-scope:
+The file below uses `scala=shared-3` and `scala=shared-2` setup blocks
+(see next section) so each per-version block has a `reportVersion()`
+helper in scope:
 
-```scala marklit:shared-3
+```scala marklit:scala=shared-3
 def reportVersion(): Unit = {
   val v = dotty.tools.dotc.config.Properties.versionNumberString
   println(s"compiled against Scala $v")
 }
 ```
 
-```scala marklit:shared-2
+```scala marklit:scala=shared-2
 def reportVersion(): Unit = {
   val v = scala.util.Properties.versionNumberString
   println(s"compiled against Scala $v")
@@ -143,14 +143,37 @@ Crossing the major boundary into Scala 2.13:
 reportVersion()
 ```
 
-## Sharing helpers across versions: `shared` and `shared-{major}`
+## Sharing helpers across versions: `scala=shared` and `scala=shared-{major}`
 
-Blocks marked `shared` contribute their code to *every* per-version
-default scope, "as if prepended at the document's start." `shared-3` /
-`shared-2` restrict the contribution to a single major — useful when
-the helper code uses APIs that only exist on one side (the
-`reportVersion` example above is exactly that case: dotc's properties
-API on Scala 3, scala-library's on 2.13).
+Blocks marked `scala=shared` do two things at once:
+
+1. **Compile and run on every Scala version in use in the document.** A
+   single source block becomes a live cross-version demo — no need to
+   copy-paste it under `scala=3.7.3`, `scala=2.13.16`, etc. When every
+   version produces the same output, it's rendered once with a header
+   listing the versions that ran; when outputs diverge, each is
+   rendered separately and labeled.
+2. **Contribute their code to every per-version default scope.** Helpers
+   defined here are visible to every later block (regardless of that
+   block's version), "as if prepended at the document's start."
+
+`scala=shared-3` and `scala=shared-2` restrict both behaviors to a
+single major — useful when the helper code uses APIs that only exist
+on one side (the `reportVersion` example above is exactly that case:
+dotc's properties API on Scala 3, scala-library's on 2.13).
+
+The block below runs on every Scala version in this doc — it compiles
+cleanly on both 2.13 and 3.x, and the output is identical, so it
+renders once with a combined header:
+
+```scala marklit:scala=shared
+val xs = List(1, 2, 3)
+println(xs.sum)
+```
+
+When outputs differ across versions, marklit falls back to per-version
+labeling: each version's stdout (or compile/runtime error) is rendered
+in its own block, headed by `// Scala <version>`.
 
 ## Per-version default scopes
 

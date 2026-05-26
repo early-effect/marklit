@@ -5,30 +5,62 @@ import marklit.scope.*
 import marklit.scope.Scope as MarklitScope
 import zio.*
 
-/** Result of processing a single code block */
+/** A single per-version compile+execute attempt for a cross-version block.
+  *
+  * Populated only for `scala=shared` / `scala=shared-{mv}` blocks, which are
+  * compiled and executed once per applicable version in the document. For
+  * non-shared blocks [[BlockResult.crossExecutions]] is empty.
+  */
+final case class BlockExecution(
+    scalaVersion: String,
+    compileResult: Option[CompileResult],
+    executionOutput: Option[String],
+    error: Option[MarklitError]
+)
+
+/** Result of processing a single code block.
+  *
+  * For non-shared blocks, [[compileResult]] / [[executionOutput]] / [[error]]
+  * hold the single result and [[crossExecutions]] is empty. For shared blocks
+  * (`scala=shared`, `scala=shared-{mv}`) all per-version attempts are in
+  * [[crossExecutions]]; the legacy single fields mirror the *first*
+  * cross-execution so existing single-result consumers keep working.
+  */
 final case class BlockResult(
     block: CodeBlock,
     compileResult: Option[CompileResult],
     executionOutput: Option[String],
     error: Option[MarklitError],
     skipped: Boolean = false,
-    effectiveScalaVersion: Option[String] = None
+    effectiveScalaVersion: Option[String] = None,
+    crossExecutions: Vector[BlockExecution] = Vector.empty
 ):
+  private def isExecutionSuccess(
+      cr: Option[CompileResult],
+      err: Option[MarklitError]
+  ): Boolean =
+    if block.expectsCrash then
+      err match
+        case Some(_: MarklitError.RuntimeError) => cr.forall(_.success)
+        case None                               => false
+        case Some(_)                            => false
+    else err.isEmpty && cr.forall(_.success)
+
   /** A block is successful if:
     *   - It was skipped (version mismatch), OR
-    *   - Compilation succeeded AND no unexpected errors occurred For crash
-    *     blocks, a RuntimeError is expected and counts as success
+    *   - For non-shared blocks: compilation succeeded AND no unexpected errors
+    *     occurred. For crash blocks, a RuntimeError is expected and counts as
+    *     success.
+    *   - For shared blocks: every cross-version execution succeeded under the
+    *     same rules.
     */
   def isSuccess: Boolean =
     if skipped then true
-    else if block.expectsCrash then
-      // Crash blocks succeed if they got the expected RuntimeError
-      error match
-        case Some(_: MarklitError.RuntimeError) =>
-          compileResult.forall(_.success)
-        case None    => false // Expected crash but didn't get one
-        case Some(_) => false // Got unexpected error type
-    else error.isEmpty && compileResult.forall(_.success)
+    else if crossExecutions.nonEmpty then
+      crossExecutions.forall(x =>
+        isExecutionSuccess(x.compileResult, x.error)
+      )
+    else isExecutionSuccess(compileResult, error)
 
 /** Result of processing an entire document */
 final case class DocumentResult(
@@ -38,12 +70,15 @@ final case class DocumentResult(
   def isSuccess: Boolean = blockResults.forall(_.isSuccess)
 
   /** Returns unexpected errors (excludes expected RuntimeErrors from crash
-    * blocks)
+    * blocks). Walks per-version cross-executions for shared blocks so a
+    * failure on any single cross version is surfaced.
     */
   def errors: Vector[(CodeBlock, MarklitError)] =
     blockResults.flatMap { br =>
-      br.error.flatMap { e =>
-        // Don't count expected crash errors
+      val errs =
+        if br.crossExecutions.nonEmpty then br.crossExecutions.flatMap(_.error)
+        else br.error.toVector
+      errs.flatMap { e =>
         if br.block.expectsCrash && e.isInstanceOf[MarklitError.RuntimeError]
         then None
         else Some((br.block, e))
@@ -52,9 +87,10 @@ final case class DocumentResult(
 
   def compileErrors: Vector[(CodeBlock, List[ScalaDiagnostic])] =
     blockResults.flatMap { br =>
-      br.compileResult
-        .filterNot(_.success)
-        .map(cr => (br.block, cr.diagnostics))
+      val crs =
+        if br.crossExecutions.nonEmpty then br.crossExecutions.flatMap(_.compileResult)
+        else br.compileResult.toVector
+      crs.filterNot(_.success).map(cr => (br.block, cr.diagnostics))
     }
 
 /** Processes markdown documents with Scala code blocks */
@@ -235,7 +271,7 @@ final class DocumentProcessorLive(
     seedAllShared *>
       ZIO
         .foreach(pairs) { case (proc, original) =>
-          processBlock(proc).map(br => br.copy(block = original))
+          processBlock(proc, versionsInUse).map(br => br.copy(block = original))
         }
         .map { results =>
           val endTime = java.time.Instant.now()
@@ -245,7 +281,10 @@ final class DocumentProcessorLive(
           )
         }
 
-  private def processBlock(block: CodeBlock): IO[MarklitError, BlockResult] =
+  private def processBlock(
+      block: CodeBlock,
+      versionsInUse: Vector[String]
+  ): IO[MarklitError, BlockResult] =
     // Resolve the version this block compiles against. Precedence:
     //   1. Per-block specific version (e.g. `scala=3.7.0`) — exact request.
     //   2. Per-block bare-major (e.g. `scala=2`) — pick a default for that
@@ -285,6 +324,11 @@ final class DocumentProcessorLive(
     // Skip when bare-major requests a major we have no default for.
     else if resolvedVersion.contains(Left(())) then
       ZIO.succeed(BlockResult(block, None, None, None, skipped = true))
+    // `scala=shared` / `scala=shared-{mv}` blocks fan out: compile+execute
+    // once per applicable version in use, and never participate in a normal
+    // (non-default) scope.
+    else if block.isAnyShared then
+      processSharedBlock(block, effectiveVersion, versionsInUse)
     else
       val effect = for
         // Resolve scope and get inherited code
@@ -293,13 +337,7 @@ final class DocumentProcessorLive(
           block.location,
           Some(effectiveVersion)
         )
-        rawPriorCode = resolved.inheritedCode ++ resolved.scope.priorCode
-        // Shared blocks were pre-seeded into their own version's default
-        // scope, so when we resolve to that scope we'd see ourselves in the
-        // priorCode. Strip the block's own code to avoid compiling it twice.
-        allPriorCode =
-          if block.isAnyShared then rawPriorCode.filterNot(_ == block.code)
-          else rawPriorCode
+        allPriorCode = resolved.inheritedCode ++ resolved.scope.priorCode
 
         // Compile
         compileResult <- compileBlock(block, allPriorCode, requestedVersion)
@@ -312,12 +350,9 @@ final class DocumentProcessorLive(
           requestedVersion
         )
 
-        // Record code in scope for subsequent blocks. Skip:
-        //  - fail/crash blocks (intentionally broken code)
-        //  - shared blocks (already pre-seeded in their version's default)
-        _ <- ZIO.unless(
-          block.expectsFailure || block.expectsCrash || block.isAnyShared
-        )(
+        // Record code in scope for subsequent blocks. Skip fail/crash blocks
+        // (intentionally broken code).
+        _ <- ZIO.unless(block.expectsFailure || block.expectsCrash)(
           scopeManager.recordCode(resolved.scope.id, block.code)
         )
       yield BlockResult(
@@ -337,6 +372,67 @@ final class DocumentProcessorLive(
             Some(error),
             effectiveScalaVersion = Some(effectiveVersion)
           )
+        )
+      }
+
+  /** Fan-out path for `scala=shared` / `scala=shared-{mv}`: compile+execute the
+    * same source against every applicable version in use, gathering one
+    * [[BlockExecution]] per version. The block is already pre-seeded into each
+    * version's default-scope priorCode, so we strip the block's own code from
+    * the inherited prior to avoid compiling it twice.
+    */
+  private def processSharedBlock(
+      block: CodeBlock,
+      fallbackVersion: String,
+      versionsInUse: Vector[String]
+  ): IO[MarklitError, BlockResult] =
+    val applicable = versionsInUse.filter(block.appliesToDefaultScope)
+    val targets =
+      if applicable.isEmpty then Vector(fallbackVersion) else applicable
+
+    ZIO
+      .foreach(targets) { v =>
+        val effect = for
+          resolved <- scopeManager.resolveScope(
+            ScopeConfig.empty,
+            block.location,
+            Some(v)
+          )
+          rawPrior = resolved.inheritedCode ++ resolved.scope.priorCode
+          // Strip the block's own code to avoid compiling it twice — it was
+          // already pre-seeded into this version's default scope.
+          allPrior = rawPrior.filterNot(_ == block.code)
+          requested = if v == scalaVersion then None else Some(v)
+          compileResult <- compileBlock(block, allPrior, requested)
+          execResult <-
+            executeBlock(block, allPrior, compileResult, requested)
+        yield BlockExecution(
+          scalaVersion = v,
+          compileResult = Some(compileResult),
+          executionOutput = execResult.output,
+          error = execResult.error
+        )
+
+        effect.catchAll(err =>
+          ZIO.succeed(
+            BlockExecution(
+              scalaVersion = v,
+              compileResult = None,
+              executionOutput = None,
+              error = Some(err)
+            )
+          )
+        )
+      }
+      .map { execs =>
+        val first = execs.headOption
+        BlockResult(
+          block = block,
+          compileResult = first.flatMap(_.compileResult),
+          executionOutput = first.flatMap(_.executionOutput),
+          error = first.flatMap(_.error),
+          effectiveScalaVersion = first.map(_.scalaVersion),
+          crossExecutions = execs
         )
       }
 
