@@ -18,7 +18,7 @@ val coursierInterfaceVersion = "1.0.9"
 
 ThisBuild / scalaVersion := marklitScalaVersion
 ThisBuild / organization := "io.github.russwyte"
-ThisBuild / version := "0.1.0-SNAPSHOT"
+// version is derived from git tags by sbt-dynver (tag v0.1.0 -> 0.1.0).
 
 ThisBuild / organizationName     := "russwyte"
 ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
@@ -39,6 +39,23 @@ ThisBuild / developers := List(
   )
 )
 ThisBuild / versionScheme := Some("early-semver")
+
+// Publishing to Sonatype's Central Portal. sbt 1.11+ has built-in support via
+// `localStaging` / `publishSigned` / `sonaRelease` — no sbt-sonatype plugin needed.
+ThisBuild / publishTo := {
+  val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
+  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
+  else localStaging.value
+}
+
+// PGP key used to sign published artifacts (sbt-pgp + local gpg keyring).
+usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
+
+// Only the sbt plugin is published; everything else is internal or bundled.
+lazy val publishSettings = Seq(
+  publishMavenStyle    := true,
+  pomIncludeRepository := { _ => false }
+)
 
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
@@ -70,6 +87,7 @@ lazy val compilerApi = project
   .in(file("compiler-api"))
   .settings(
     name := "marklit-compiler-api",
+    publish / skip := true,
     crossPaths := false,
     autoScalaLibrary := false,
     Compile / doc / sources := Seq.empty,
@@ -154,10 +172,17 @@ addCommandAlias(
   "; cli/clean; cli/assembly; plugin/clean; plugin/publishLocal"
 )
 
+// Release the plugin to Sonatype Central (requires git tag + signing key + creds).
+addCommandAlias(
+  "release",
+  "; plugin/clean; plugin/publishSigned; sonaRelease"
+)
+
 lazy val core = project
   .in(file("core"))
   .settings(
     name := "marklit-core",
+    publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % zioVersion,
       "dev.zio" %% "zio-streams" % zioVersion,
@@ -176,6 +201,7 @@ lazy val compiler = project
   .dependsOn(core, compilerApi)
   .settings(
     name := "marklit-compiler",
+    publish / skip := true,
     libraryDependencies ++= Seq(
       // ZIO
       "dev.zio" %% "zio" % zioVersion,
@@ -271,6 +297,7 @@ lazy val cli = project
 lazy val plugin = project
   .in(file("sbt-plugin"))
   .enablePlugins(SbtPlugin)
+  .settings(publishSettings)
   .settings(
     name := "sbt-marklit",
     scalaVersion := "2.12.20",
@@ -282,7 +309,9 @@ lazy val plugin = project
       IO.copyFile(cliJar, targetFile)
       Seq(targetFile)
     }.taskValue,
-    // Ensure CLI assembly is built before plugin publish
+    // The Compile resourceGenerator above pulls in `cli / assembly`, so the CLI
+    // fat jar is rebuilt before any packaging task (publish, publishLocal,
+    // publishSigned). These overrides make that dependency explicit.
     publish := (publish dependsOn (cli / assembly)).value,
     publishLocal := (publishLocal dependsOn (cli / assembly)).value,
     scalacOptions := Seq("-deprecation", "-feature")
