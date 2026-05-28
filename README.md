@@ -1,10 +1,22 @@
 # marklit
 
+[![Maven Repository](https://img.shields.io/maven-central/v/io.github.russwyte/sbt-marklit_2.12_1.0?logo=apachemaven)](https://mvnrepository.com/artifact/io.github.russwyte/sbt-marklit)
+
 **Typechecked Scala documentation that actually runs your code — across multiple Scala versions, in the same file.**
 
 Write Markdown with Scala code fences. marklit compiles each fence against your real project classpath, executes it, and renders a new Markdown file with the actual output spliced in. Code that's supposed to fail can be asserted to fail. Code that's supposed to crash can be asserted to crash. And — uniquely — a single document can mix Scala 3.3.7, 3.7.3, 3.8.2, and 2.13.16 blocks side by side, each compiled by its own real compiler.
 
 If your docs claim something works, marklit makes the build break when it doesn't.
+
+## Installation
+
+marklit ships as an sbt plugin. Add it to `project/plugins.sbt`:
+
+```scala
+addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.0.1")
+```
+
+The plugin is an `AutoPlugin` triggered on every JVM project — no `enablePlugins` needed. See [Build tool integration](#build-tool-integration) for wiring up a docs project.
 
 ## What sets marklit apart
 
@@ -226,7 +238,7 @@ Default remains off: marklit's per-block isolation is the better default for ref
 
 ```scala
 // project/plugins.sbt
-addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.1.0-SNAPSHOT")
+addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.0.1")
 ```
 
 ```scala
@@ -255,6 +267,8 @@ The plugin auto-passes your project's `fullClasspath` to marklit, so any depende
 A worked multi-version example lives in [examples/sbt/](examples/sbt/).
 
 ### Mill
+
+> **Not published yet.** The Mill plugin is built in this repo but hasn't been released to Maven Central — the snippet below is a preview of the intended usage. A release is coming soon; until then, use the sbt plugin or the standalone CLI.
 
 ```scala
 //| mvnDeps:
