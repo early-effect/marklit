@@ -291,6 +291,16 @@ object MarklitPlugin extends AutoPlugin {
     marklitCacheDirectory := Some(target.value / "marklit-cache"),
     marklitMajorClasspaths := autoMajorClasspaths.value,
 
+    // Make `sbt ~marklitGenerate` (and friends) re-trigger when a markdown
+    // source under marklitSourceDirectory is edited. Without this, sbt only
+    // watches Scala/Java sources and a `.md` save would not retrigger the
+    // task.
+    Compile / watchSources += new WatchSource(
+      marklitSourceDirectory.value,
+      "*.md" || "*.markdown",
+      HiddenFileFilter
+    ),
+
     // Compile task - check markdown files compile successfully
     marklitCompile := {
       val log = streams.value.log
