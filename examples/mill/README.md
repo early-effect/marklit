@@ -25,6 +25,26 @@ mill root.marklitCheck
 
 Output is written to `out/root/marklitGenerate.dest/`.
 
+### Watch mode
+
+`mill -w docs.marklitGenerate` re-runs the task whenever a markdown source
+under `marklitSourceDir` changes. This works out of the box when the source
+directory lives inside the Mill workspace.
+
+This example shares its markdown source with the sbt example
+(`../base/src/main/markdown`), which sits **outside** the Mill workspace
+root. Mill's native file-system watcher refuses to register paths outside
+the workspace and prints `Watched path … is outside workspace root … is
+unsupported`. To watch this layout, fall back to Mill's polling mode:
+
+```bash
+mill -w --notify-watch=false docs.marklitGenerate
+```
+
+Polling has higher idle CPU cost but ignores the workspace-root restriction.
+For a typical project where markdown lives inside the docs module, the
+default `mill -w docs.marklitGenerate` is preferred.
+
 ## Configuration
 
 The `build.mill` file defines:
