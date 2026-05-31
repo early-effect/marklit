@@ -1,0 +1,45 @@
+name: Diag Sonatype Creds
+
+# TEMPORARY diagnostic — tests the stored SONATYPE_* secrets against the
+# Central Portal without publishing anything. Delete after use.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe Central Portal auth
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: |
+          # Never echo the secret values (GH masks them anyway). Only report
+          # lengths + shape so we can spot a newline or an account-login mixup.
+          ulen=$(printf '%s' "$SONATYPE_USERNAME" | wc -c | tr -d ' ')
+          utrim=$(printf '%s' "$SONATYPE_USERNAME" | tr -d '[:space:]' | wc -c | tr -d ' ')
+          plen=$(printf '%s' "$SONATYPE_PASSWORD" | wc -c | tr -d ' ')
+          ptrim=$(printf '%s' "$SONATYPE_PASSWORD" | tr -d '[:space:]' | wc -c | tr -d ' ')
+          echo "username bytes: raw=$ulen trimmed=$utrim"
+          echo "password bytes: raw=$plen trimmed=$ptrim"
+          [ "$ulen" != "$utrim" ] && echo "WARN: username has surrounding whitespace/newline"
+          [ "$plen" != "$ptrim" ] && echo "WARN: password has surrounding whitespace/newline"
+          case "$SONATYPE_USERNAME" in
+            *@*) echo "WARN: username contains '@' — looks like an account email, not a user-token username" ;;
+          esac
+
+          # Build the Bearer token EXACTLY as the Portal expects: base64(user:pass),
+          # no line wrap (-w0). Do NOT print $token — it's not a masked secret.
+          token=$(printf '%s:%s' "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" | base64 -w0)
+          code=$(curl -s -o /tmp/body -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $token" \
+            'https://central.sonatype.com/api/v1/publisher/status?id=00000000-0000-0000-0000-000000000000')
+          echo "----"
+          echo "HTTP status: $code"
+          echo "response body: $(cat /tmp/body)"
+          echo "----"
+          case "$code" in
+            401) echo "RESULT: credentials REJECTED (401) — token wrong / stale / halves swapped" ;;
+            400|404) echo "RESULT: credentials ACCEPTED — auth works (deployment id just not found, expected)" ;;
+            *) echo "RESULT: unexpected ($code) — inspect body above" ;;
+          esac
