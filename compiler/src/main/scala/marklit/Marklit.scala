@@ -197,26 +197,41 @@ private final class CompilerServiceAdapter(
   private def buildContext(
       code: String,
       priorCode: Vector[String],
-      isZIOApp: Boolean
+      isZIOApp: Boolean,
+      topLevel: Boolean,
+      topLevelPriorCode: Vector[String]
   ): ScopeContext =
+    // Top-level blocks compile verbatim (no wrapper) and never execute, so no
+    // output marker is injected — a bare `print(marker)` would be illegal at
+    // file scope. Otherwise mark only when there's prior run-body code to skip.
     val marker =
-      if priorCode.nonEmpty then Some(blockMarker(code, priorCode, isZIOApp))
+      if topLevel then None
+      else if priorCode.nonEmpty then
+        Some(blockMarker(code, priorCode, isZIOApp, topLevelPriorCode))
       else None
     ScopeContext(
       priorCode = priorCode,
       outputMarker = marker,
-      isZIOApp = isZIOApp
+      isZIOApp = isZIOApp,
+      topLevel = topLevel,
+      topLevelPriorCode = topLevelPriorCode
     )
 
   private def blockMarker(
       code: String,
       priorCode: Vector[String],
-      isZIOApp: Boolean
+      isZIOApp: Boolean,
+      topLevelPriorCode: Vector[String]
   ): String =
     val md = MessageDigest.getInstance("SHA-256")
     md.update(code.getBytes("UTF-8"))
     md.update(0.toByte)
     priorCode.foreach { p =>
+      md.update(p.getBytes("UTF-8"))
+      md.update(0.toByte)
+    }
+    md.update(1.toByte) // separator between priorCode and topLevelPriorCode
+    topLevelPriorCode.foreach { p =>
       md.update(p.getBytes("UTF-8"))
       md.update(0.toByte)
     }
@@ -254,11 +269,16 @@ private final class CompilerServiceAdapter(
       scalaVersion: Option[String],
       location: Option[Location],
       scopeConfig: ScopeConfig,
-      scopeMode: ScopeMode
+      scopeMode: ScopeMode,
+      topLevel: Boolean,
+      topLevelPriorCode: Vector[String]
   ): IO[MarklitError, CompileResult] =
     val invoke =
       compilerFor(scalaVersion).flatMap(
-        _.compile(code, buildContext(code, priorCode, isZIOApp))
+        _.compile(
+          code,
+          buildContext(code, priorCode, isZIOApp, topLevel, topLevelPriorCode)
+        )
       )
     location match
       case None      => invoke
@@ -277,7 +297,9 @@ private final class CompilerServiceAdapter(
           startLine = loc.startLine,
           startColumn = loc.startColumn,
           scopeConfig = scopeConfig,
-          scopeMode = scopeMode
+          scopeMode = scopeMode,
+          topLevel = topLevel,
+          topLevelPriorCode = topLevelPriorCode
         )
         cache.get(key).flatMap {
           case Some(hit) => ZIO.succeed(hit)
@@ -289,9 +311,12 @@ private final class CompilerServiceAdapter(
       priorCode: Vector[String],
       isZIOApp: Boolean,
       scalaVersion: Option[String],
-      classFilesDir: Option[Path]
+      classFilesDir: Option[Path],
+      topLevel: Boolean,
+      topLevelPriorCode: Vector[String]
   ): IO[MarklitError, String] =
-    val ctx = buildContext(code, priorCode, isZIOApp)
+    val ctx =
+      buildContext(code, priorCode, isZIOApp, topLevel, topLevelPriorCode)
     compilerFor(scalaVersion).flatMap { c =>
       classFilesDir match
         case Some(dir) => c.executeFromDir(dir, ctx).map(_.output)

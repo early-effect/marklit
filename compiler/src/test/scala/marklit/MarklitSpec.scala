@@ -346,6 +346,158 @@ object MarklitSpec extends ZIOSpecDefault:
         )
       }
     ).provide(Marklit.layer),
+    suite("top-level (real compiler, isolated)")(
+      test(
+        "top-level block: enum + match renders code-only with NO local-class warning"
+      ) {
+        // The motivating case. A normal block would warn ("the type test ...
+        // cannot be checked at runtime because it's a local class") under the
+        // wrapper; a top-level block hoists the enum to file scope, so the
+        // warning is gone — and being compile-only, it renders just the code.
+        val content =
+          """```scala marklit:top-level
+            |enum CounterAction:
+            |  case Inc
+            |  case Set(v: Int)
+            |
+            |val a: Any = CounterAction.Set(10)
+            |val label = a match
+            |  case CounterAction.Set(v) => s"set $v"
+            |  case _                    => "other"
+            |```
+            |""".stripMargin
+        for
+          result <- Marklit.processContent(content, "test.md")
+          rendered = marklit.renderer.MarkdownRenderer.render(
+            result.document,
+            result.processingResult,
+            marklit.renderer.RenderConfig.default
+          )
+        yield
+          val br = result.processingResult.blockResults.head
+          assertTrue(
+            result.isSuccess,
+            br.compileResult.exists(_.success),
+            // no local-class warning leaked
+            br.compileResult.forall(
+              !_.warnings.exists(_.message.contains("local class"))
+            ),
+            // compile-only: no execution output, code preserved in render
+            br.executionOutput.isEmpty,
+            rendered.contains("enum CounterAction"),
+            !rendered.contains("local class")
+          )
+      },
+      test(
+        "control: the same enum match WITHOUT top-level warns about a local class"
+      ) {
+        // Pins WHY the feature exists: identical source, wrapped, warns.
+        val content =
+          """```scala
+            |enum CounterAction:
+            |  case Inc
+            |  case Set(v: Int)
+            |
+            |val a: Any = CounterAction.Set(10)
+            |val label = a match
+            |  case CounterAction.Set(v) => s"set $v"
+            |  case _                    => "other"
+            |```
+            |""".stripMargin
+        for result <- Marklit.processContent(content, "test.md")
+        yield
+          val br = result.processingResult.blockResults.head
+          assertTrue(
+            br.compileResult.exists(
+              _.warnings.exists(_.message.contains("local class"))
+            )
+          )
+      },
+      test(
+        "top-level definition consumed by a normal executable block: code-only + output"
+      ) {
+        // enum defined top-level (id=actions), then a normal block matches on
+        // it and prints. The normal block compiles WITHOUT the local-class
+        // warning (the enum is hoisted) and DOES produce output.
+        val content =
+          """```scala marklit:top-level,id=actions
+            |enum CounterAction:
+            |  case Inc
+            |  case Set(v: Int)
+            |```
+            |
+            |```scala marklit:extends=actions
+            |val a: Any = CounterAction.Set(10)
+            |a match
+            |  case CounterAction.Set(v) => println(s"set $v")
+            |  case _                    => println("other")
+            |```
+            |""".stripMargin
+        for
+          result <- Marklit.processContent(content, "test.md")
+          rendered = marklit.renderer.MarkdownRenderer.render(
+            result.document,
+            result.processingResult,
+            marklit.renderer.RenderConfig.default
+          )
+        yield
+          val defB = result.processingResult.blockResults(0)
+          val useB = result.processingResult.blockResults(1)
+          assertTrue(
+            result.isSuccess,
+            // definition is compile-only
+            defB.executionOutput.isEmpty,
+            // consumer compiled cleanly (no local-class warning) and ran
+            useB.compileResult.exists(_.success),
+            useB.compileResult.forall(
+              !_.warnings.exists(_.message.contains("local class"))
+            ),
+            useB.executionOutput.exists(_.contains("set 10")),
+            rendered.contains("set 10"),
+            !rendered.contains("local class")
+          )
+      },
+      test(
+        "top-level combined with a behavioral modifier fails the run"
+      ) {
+        val content =
+          """```scala marklit:top-level,silent
+            |opaque type C = Int
+            |```
+            |""".stripMargin
+        for result <- Marklit.processContent(content, "test.md")
+        yield assertTrue(
+          !result.isSuccess,
+          result.processingResult.blockResults.head.error.exists {
+            case MarklitError.ValidationError(_, msg) =>
+              msg.contains("top-level")
+            case _ => false
+          }
+        )
+      },
+      test(
+        "cross-version: a top-level block pinned to a specific version compiles there"
+      ) {
+        // opaque type only compiles at the top level; pin it to a specific 3.x
+        // version to exercise the version-specific top-level path end-to-end.
+        val v = CompilerFactory.defaultScalaVersion
+        val content =
+          s"""```scala marklit:top-level,scala=$v
+             |opaque type Celsius = Double
+             |object Celsius:
+             |  def apply(d: Double): Celsius = d
+             |```
+             |""".stripMargin
+        for result <- Marklit.processContent(content, "test.md")
+        yield
+          val br = result.processingResult.blockResults.head
+          assertTrue(
+            result.isSuccess,
+            br.compileResult.exists(_.success),
+            br.effectiveScalaVersion == Some(v)
+          )
+      }
+    ).provide(Marklit.layer),
     suite("page scope (real compiler)")(
       test("two anonymous page-scoped blocks both produce executionOutput") {
         // Regression: rendered tour.md showed page-scoped blocks with no
@@ -541,6 +693,55 @@ object MarklitSpec extends ZIOSpecDefault:
             result.isSuccess,
             outputs.forall(!_.contains("__MARKLIT_")),
             outputs.exists(_.contains("answer = 42"))
+          )
+      },
+      test(
+        "top-level def + extends consumer composes with --page-scope"
+      ) {
+        // Under page scope, anonymous blocks share a run-body chain. A
+        // top-level definition block opts out (it's hoisted, not run-body), and
+        // an explicit `extends=` consumer also opts out of the page chain while
+        // still inheriting the hoisted enum. An anonymous page-scoped block
+        // sitting between them must not disturb the hoist.
+        val content =
+          """```scala marklit:top-level,id=actions
+            |enum CounterAction:
+            |  case Inc
+            |  case Set(v: Int)
+            |```
+            |
+            |```scala
+            |val pageLocal = "page scope still works"
+            |println(pageLocal)
+            |```
+            |
+            |```scala marklit:extends=actions
+            |val a: Any = CounterAction.Set(7)
+            |a match
+            |  case CounterAction.Set(v) => println(s"set $v")
+            |  case _                    => println("other")
+            |```
+            |""".stripMargin
+        for
+          result <- Marklit.processContent(content, "test.md")
+          rendered = marklit.renderer.MarkdownRenderer.render(
+            result.document,
+            result.processingResult,
+            marklit.renderer.RenderConfig.default
+          )
+        yield
+          val useB = result.processingResult.blockResults(2)
+          assertTrue(
+            result.isSuccess,
+            // consumer inherited the hoisted enum, compiled cleanly, and ran
+            useB.compileResult.forall(
+              !_.warnings.exists(_.message.contains("local class"))
+            ),
+            useB.executionOutput.exists(_.contains("set 7")),
+            // page scope unaffected by the top-level block between them
+            rendered.contains("page scope still works"),
+            rendered.contains("set 7"),
+            !rendered.contains("local class")
           )
       }
     ).provide(pageScopeLayer)

@@ -272,6 +272,202 @@ object ScopeManagerSpec extends ZIOSpecDefault:
       }
     ),
 
+    suite("top-level scopes")(
+      test("a normal block extending a top-level scope hoists the inherited code") {
+        // The motivating case: an opaque type / enum defined in a top-level
+        // scope, consumed by a normal executable block. The definition must be
+        // hoisted (file scope), the consumer's own code stays run-body.
+        val tlDef = ScopeConfig(id = Some("types"))
+        val consumer = ScopeConfig(extendsScope = Some("types"))
+        for
+          _ <- ScopeManager.resolveScope(tlDef, testLocation, topLevel = true)
+          _ <- ScopeManager.recordCode("types", "opaque type C = Int")
+          r <- ScopeManager.resolveScope(consumer, testLocation)
+        yield assertTrue(
+          r.hoistCode == Vector("opaque type C = Int"),
+          r.bodyCode.isEmpty
+        )
+      },
+      test("a top-level chain accumulates all definitions in the hoist bucket") {
+        val a = ScopeConfig(id = Some("a"))
+        val b = ScopeConfig(id = Some("b"), extendsScope = Some("a"))
+        for
+          _ <- ScopeManager.resolveScope(a, testLocation, topLevel = true)
+          _ <- ScopeManager.recordCode("a", "opaque type A = Int")
+          _ <- ScopeManager.resolveScope(b, testLocation, topLevel = true)
+          _ <- ScopeManager.recordCode("b", "opaque type B = Int")
+          // A normal consumer at the bottom of the chain.
+          consumer <- ScopeManager.resolveScope(
+            ScopeConfig(extendsScope = Some("b")),
+            testLocation
+          )
+        yield assertTrue(
+          consumer.hoistCode == Vector("opaque type A = Int", "opaque type B = Int"),
+          consumer.bodyCode.isEmpty
+        )
+      },
+      test("top-level append accumulates into the same top-level scope") {
+        val base = ScopeConfig(id = Some("tlbase"))
+        val app = ScopeConfig(extendsScope = Some("tlbase"), append = true)
+        for
+          _ <- ScopeManager.resolveScope(base, testLocation, topLevel = true)
+          _ <- ScopeManager.recordCode("tlbase", "opaque type X = Int")
+          a <- ScopeManager.resolveScope(app, testLocation, topLevel = true)
+          _ <- ScopeManager.recordCode(a.scope.id, "opaque type Y = Int")
+          reread <- ScopeManager.resolveScope(base, testLocation, topLevel = true)
+        yield assertTrue(
+          a.scope.id == "tlbase",
+          reread.hoistCode == Vector("opaque type X = Int", "opaque type Y = Int")
+        )
+      },
+      test(
+        "anonymous top-level block has no parent and inherits no shared/default code"
+      ) {
+        // Shared run-body code seeded into the per-version default scope must
+        // NOT flow into a top-level block — it would be illegal at file scope.
+        for
+          _ <- ScopeManager.seedDefaultPriorCode("3.7.3", "val helper = 99")
+          r <- ScopeManager.resolveScope(
+            ScopeConfig.empty,
+            testLocation,
+            effectiveVersion = Some("3.7.3"),
+            topLevel = true
+          )
+        yield assertTrue(
+          r.scope.parent.isEmpty,
+          r.scope.topLevel,
+          r.hoistCode.isEmpty,
+          r.bodyCode.isEmpty
+        )
+      },
+      test("a top-level block extending a NORMAL scope is rejected") {
+        val normal = ScopeConfig(id = Some("plain"))
+        val tlChild = ScopeConfig(extendsScope = Some("plain"))
+        for
+          _ <- ScopeManager.resolveScope(normal, testLocation) // normal
+          result <- ScopeManager
+            .resolveScope(tlChild, testLocation, topLevel = true)
+            .either
+        yield assertTrue(
+          result.isLeft,
+          result.left.toOption.exists {
+            case MarklitError.ValidationError(_, msg) =>
+              msg.toLowerCase.contains("top-level")
+            case _ => false
+          }
+        )
+      },
+      test("a normal block appending to a top-level scope is rejected") {
+        val tl = ScopeConfig(id = Some("tlappend"))
+        val normalAppend =
+          ScopeConfig(extendsScope = Some("tlappend"), append = true)
+        for
+          _ <- ScopeManager.resolveScope(tl, testLocation, topLevel = true)
+          result <- ScopeManager
+            .resolveScope(normalAppend, testLocation) // normal
+            .either
+        yield assertTrue(
+          result.isLeft,
+          result.left.toOption.exists {
+            case MarklitError.ValidationError(_, msg) =>
+              msg.toLowerCase.contains("top-level")
+            case _ => false
+          }
+        )
+      },
+      test("a top-level block appending to a NORMAL scope is rejected") {
+        val normal = ScopeConfig(id = Some("plainappend"))
+        val tlAppend =
+          ScopeConfig(extendsScope = Some("plainappend"), append = true)
+        for
+          _ <- ScopeManager.resolveScope(normal, testLocation) // normal
+          result <- ScopeManager
+            .resolveScope(tlAppend, testLocation, topLevel = true)
+            .either
+        yield assertTrue(
+          result.isLeft,
+          result.left.toOption.exists {
+            case MarklitError.ValidationError(_, msg) =>
+              msg.toLowerCase.contains("top-level")
+            case _ => false
+          }
+        )
+      },
+      test("reusing an id with a different kind is rejected") {
+        val tl = ScopeConfig(id = Some("dual"))
+        for
+          _ <- ScopeManager.resolveScope(tl, testLocation, topLevel = true)
+          result <- ScopeManager
+            .resolveScope(tl, testLocation, topLevel = false) // reuse as normal
+            .either
+        yield assertTrue(
+          result.isLeft,
+          result.left.toOption.exists {
+            case MarklitError.ValidationError(_, msg) =>
+              msg.toLowerCase.contains("top-level")
+            case _ => false
+          }
+        )
+      },
+      test("a top-level scope carries its requested Scala version") {
+        // Cross-version support: a `top-level,scala=3.7.3` definition block
+        // pins its version like any other scope, so a consumer must match it.
+        val tl = ScopeConfig(id = Some("tlv"), scalaVersion = Some("3.7.3"))
+        for resolved <- ScopeManager.resolveScope(
+            tl,
+            testLocation,
+            effectiveVersion = Some("3.7.3"),
+            topLevel = true
+          )
+        yield assertTrue(
+          resolved.scope.topLevel,
+          resolved.scope.scalaVersion == Some("3.7.3")
+        )
+      },
+      test(
+        "a normal block extending a top-level scope of a different version is rejected"
+      ) {
+        // The version guard must fire even across kinds: hoisting is allowed
+        // only when versions agree, just like normal cross-version extends.
+        val tl = ScopeConfig(id = Some("tl2"), scalaVersion = Some("2.13.16"))
+        val consumer = ScopeConfig(
+          extendsScope = Some("tl2"),
+          scalaVersion = Some("3.7.3")
+        )
+        for
+          _ <- ScopeManager.resolveScope(tl, testLocation, topLevel = true)
+          result <- ScopeManager
+            .resolveScope(consumer, testLocation) // normal, different version
+            .either
+        yield assertTrue(
+          result.isLeft,
+          result.left.toOption.exists {
+            case MarklitError.ValidationError(_, msg) =>
+              msg.contains("different version") || msg.contains("Cannot extend")
+            case _ => false
+          }
+        )
+      },
+      test(
+        "a normal block extending a same-version top-level scope hoists its code"
+      ) {
+        val tl = ScopeConfig(id = Some("tl3"), scalaVersion = Some("3.7.3"))
+        val consumer = ScopeConfig(
+          extendsScope = Some("tl3"),
+          scalaVersion = Some("3.7.3")
+        )
+        for
+          _ <- ScopeManager.resolveScope(tl, testLocation, topLevel = true)
+          _ <- ScopeManager.recordCode("tl3", "opaque type C = Int")
+          r <- ScopeManager.resolveScope(consumer, testLocation)
+        yield assertTrue(
+          r.hoistCode == Vector("opaque type C = Int"),
+          r.bodyCode.isEmpty,
+          r.scope.scalaVersion == Some("3.7.3")
+        )
+      }
+    ),
+
     suite("parallel compilation")(
       test("identifies independent scope trees") {
         val tree1Root = ScopeConfig(id = Some("tree1"))

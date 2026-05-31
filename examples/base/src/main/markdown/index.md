@@ -20,6 +20,10 @@ type-checked, run, and the output spliced back into the markdown.
    `shared` / `shared-{major}` setup blocks).
 5. **[zio-example.md](zio-example.md)** — worked recipe using
    `marklit:zio-app` plus named scopes to assemble a small ZIO service.
+6. **[top-level.md](top-level.md)** — `top-level` blocks: compile
+   constructs that are illegal or warn inside the wrapper (`opaque type`,
+   `@main`, parameterized `enum` matches), and hoist a definition into a
+   running example.
 
 For the opt-in page-scope feature (anonymous blocks sharing state
 mdoc-style), see the dedicated `markdown-page-scope/tour.md` tree
@@ -40,6 +44,7 @@ Modifiers are bare words in the fenced info string, prefixed with
 | `warn`          | Assert ≥1 compile warning AND always render warnings.            | [tutorial.md](tutorial.md)                            |
 | `crash`         | Assert the block throws at runtime; render the exception.        | [tutorial.md](tutorial.md)                            |
 | `zio-app`       | Wrap block as the body of `ZIOAppDefault.run`.                   | [zio-example.md](zio-example.md)                      |
+| `top-level`     | Compile verbatim as a top-level unit (no wrapper); compile-only. | [top-level.md](top-level.md)                          |
 | `shared`        | Prepend block's code to every per-version default scope.         | [scopes-and-versions.md](scopes-and-versions.md)      |
 | `shared-{maj}`  | Prepend block to default scopes for one Scala major (`-3`/`-2`). | [scopes-and-versions.md](scopes-and-versions.md)      |
 | `append`        | Grow an existing scope in place (combine with `extends=`).       | [scopes-and-versions.md](scopes-and-versions.md)      |

@@ -53,20 +53,10 @@ final class ScalaCompiler(
   ): IO[MarklitError, CompileResult] =
     ZIO
       .attempt {
-        val marker = context.outputMarker.getOrElse("")
-
-        // For ZIO blocks, we need to handle markers differently since plain
-        // print() happens at effect construction time, not execution time.
-        val (markerCode, codeWithMarker) =
-          if context.isZIOApp && marker.nonEmpty then
-            ("", s"""zio.ZIO.succeed(print("$marker")) *> {\n$code\n}""")
-          else
-            val mc = if marker.nonEmpty then s"""print("$marker")\n""" else ""
-            (mc, code)
-
-        val fullCode =
-          if context.priorCode.isEmpty then s"$markerCode$codeWithMarker"
-          else s"${context.allCode}\n\n$markerCode$codeWithMarker"
+        // Inherited top-level definitions (e.g. an `enum`) are emitted at file
+        // scope — above the wrapper for normal blocks, or as the entire unit
+        // for a top-level block. Empty for the common case.
+        val hoist = context.hoistedCode
 
         // Per-block output directory. Every compile gets its own subdir so
         // dotc's `MarklitWrapper$.class` from one block doesn't clobber the
@@ -75,10 +65,38 @@ final class ScalaCompiler(
         val perBlockOut = Files.createTempDirectory(outputDir, "block-")
         val sourceFile = Files.createTempFile(perBlockOut, "marklit_", ".scala")
         try
-          val wrappedCode =
-            if context.isZIOApp then wrapInZIOApp(fullCode)
-            else wrapInObject(fullCode)
-          Files.writeString(sourceFile, wrappedCode)
+          val sourceCode =
+            if context.topLevel then
+              // Top-level blocks compile verbatim as their own compilation
+              // unit: no wrapper, and no `print(marker)` (a bare statement is
+              // illegal at file scope, and top-level blocks never execute).
+              if hoist.isEmpty then code else s"$hoist\n\n$code"
+            else
+              val marker = context.outputMarker.getOrElse("")
+
+              // For ZIO blocks, we handle markers differently since plain
+              // print() happens at effect construction time, not execution.
+              val (markerCode, codeWithMarker) =
+                if context.isZIOApp && marker.nonEmpty then
+                  ("", s"""zio.ZIO.succeed(print("$marker")) *> {\n$code\n}""")
+                else
+                  val mc =
+                    if marker.nonEmpty then s"""print("$marker")\n""" else ""
+                  (mc, code)
+
+              val bodyCode =
+                if context.priorCode.isEmpty then s"$markerCode$codeWithMarker"
+                else s"${context.allCode}\n\n$markerCode$codeWithMarker"
+
+              val wrapped =
+                if context.isZIOApp then wrapInZIOApp(bodyCode)
+                else wrapInObject(bodyCode)
+
+              // Hoisted top-level definitions go ABOVE the wrapper object so
+              // they live at file scope; the executable body stays in `run()`.
+              if hoist.isEmpty then wrapped else s"$hoist\n\n$wrapped"
+
+          Files.writeString(sourceFile, sourceCode)
 
           val effectiveClasspath = (classpath ++ context.classpath).toList
           val effectiveOpts =

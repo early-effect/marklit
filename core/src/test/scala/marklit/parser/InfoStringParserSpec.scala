@@ -6,6 +6,58 @@ import zio.test.*
 object InfoStringParserSpec extends ZIOSpecDefault:
 
   def spec = suite("InfoStringParser")(
+    suite("top-level modifier")(
+      test("top-level parses to Modifier.TopLevel") {
+        val r = InfoStringParser.parse("scala marklit:top-level")
+        assertTrue(
+          r.isScalaBlock,
+          r.modifiers == Set(Modifier.TopLevel),
+          r.scopeConfig == ScopeConfig.empty
+        )
+      },
+      test("top-level,id=foo carries both the modifier and the scope id") {
+        val r = InfoStringParser.parse("scala marklit:top-level,id=foo")
+        assertTrue(
+          r.isScalaBlock,
+          r.modifiers == Set(Modifier.TopLevel),
+          r.scopeConfig.id == Some("foo")
+        )
+      },
+      test("top-level,extends=foo carries both the modifier and the parent") {
+        val r = InfoStringParser.parse("scala marklit:top-level,extends=foo")
+        assertTrue(
+          r.isScalaBlock,
+          r.modifiers == Set(Modifier.TopLevel),
+          r.scopeConfig.extendsScope == Some("foo")
+        )
+      },
+      test("top-level,scala=3 keeps the bare major and the modifier") {
+        val r = InfoStringParser.parse("scala marklit:top-level,scala=3")
+        assertTrue(
+          r.isScalaBlock,
+          r.modifiers == Set(Modifier.TopLevel),
+          r.scopeConfig.scalaVersion == Some("3")
+        )
+      },
+      test("Top-Level is recognized case-insensitively") {
+        val r = InfoStringParser.parse("scala marklit:Top-Level")
+        assertTrue(r.modifiers == Set(Modifier.TopLevel))
+      },
+      test("top-level alongside an unknown key still recognizes top-level") {
+        val r = InfoStringParser.parse("scala marklit:top-level,bogus=1")
+        assertTrue(
+          r.isScalaBlock,
+          r.modifiers == Set(Modifier.TopLevel)
+        )
+      },
+      test("a non-scala fence with top-level stays passthrough") {
+        val r = InfoStringParser.parse("text marklit:top-level")
+        assertTrue(
+          !r.isScalaBlock,
+          r.modifiers == Set(Modifier.Passthrough)
+        )
+      }
+    ),
     suite("show-warnings option")(
       test("show-warnings=true sets override to Some(true)") {
         val r = InfoStringParser.parse("scala marklit:show-warnings=true")

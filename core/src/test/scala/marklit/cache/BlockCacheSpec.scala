@@ -130,6 +130,47 @@ object BlockCacheSpec extends ZIOSpecDefault:
         )
       assertTrue(keyWith(ScopeMode.Isolated) != keyWith(ScopeMode.Page))
     },
+    test("toggling topLevel produces a different key") {
+      // A top-level (unwrapped) compile and a wrapped compile of identical
+      // source must not share a cache entry — their class files differ.
+      def keyWith(topLevel: Boolean): BlockCacheKey =
+        BlockCacheKey.make(
+          code = "opaque type T = Int",
+          priorCode = Vector.empty,
+          scalaVersion = "3.8.2",
+          classpath = Vector("a.jar"),
+          classpathHashes = Vector("h1"),
+          scalacOptions = Vector.empty,
+          isZIOApp = false,
+          file = "f.md",
+          startLine = 1,
+          startColumn = 1,
+          topLevel = topLevel
+        )
+      assertTrue(keyWith(false) != keyWith(true))
+    },
+    test("different topLevelPriorCode produces a different key") {
+      // Hoisted definitions are part of the compilation unit; changing them
+      // must invalidate the entry.
+      def keyWith(hoist: Vector[String]): BlockCacheKey =
+        BlockCacheKey.make(
+          code = "val x = 1",
+          priorCode = Vector.empty,
+          scalaVersion = "3.8.2",
+          classpath = Vector("a.jar"),
+          classpathHashes = Vector("h1"),
+          scalacOptions = Vector.empty,
+          isZIOApp = false,
+          file = "f.md",
+          startLine = 1,
+          startColumn = 1,
+          topLevelPriorCode = hoist
+        )
+      assertTrue(
+        keyWith(Vector.empty) != keyWith(Vector("enum E: case A")),
+        keyWith(Vector("enum E: case A")) != keyWith(Vector("enum E: case B"))
+      )
+    },
     test("changing classpath hash invalidates key") {
       val k1 = BlockCacheKey.make(
         code = "x",

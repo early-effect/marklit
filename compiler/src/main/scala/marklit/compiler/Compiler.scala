@@ -11,13 +11,24 @@ final case class ScopeContext(
     scalacOptions: Vector[String] = Vector.empty,
     outputMarker: Option[String] =
       None, // UUID marker to identify where new output starts
-    isZIOApp: Boolean = false // Wrap in ZIOAppDefault instead of plain object
+    isZIOApp: Boolean = false, // Wrap in ZIOAppDefault instead of plain object
+    topLevel: Boolean =
+      false, // Compile this block verbatim as its own compilation unit
+    topLevelPriorCode: Vector[String] =
+      Vector.empty // Inherited definitions hoisted ABOVE the wrapper
 ):
   def append(code: String): ScopeContext =
     copy(priorCode = priorCode :+ code)
 
   def allCode: String =
     priorCode.mkString("\n\n")
+
+  /** Inherited top-level definitions, joined, to emit at file scope (above the
+    * `MarklitWrapper` object for normal blocks, or as the whole unit for
+    * top-level blocks).
+    */
+  def hoistedCode: String =
+    topLevelPriorCode.mkString("\n\n")
 
 object ScopeContext:
   val empty: ScopeContext = ScopeContext()

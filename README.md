@@ -32,6 +32,8 @@ marklit lives in [mdoc](https://scalameta.org/mdoc/)'s neighborhood. Many ideas 
 | **Named scopes with inheritance** (`id=foo`, `extends=foo`) | ✗ | **✓** |
 | **Append to a named scope** (`extends=foo,append`) | ✗ | **✓** |
 | Cross-built dependencies on per-major classpaths | ✗ | **✓** |
+| **Top-level definitions** (`opaque type`, `@main`, top-level `given`/`extension`) | ✗ | **✓** |
+| **No "local class" warning on enum/ADT pattern matches** | partial | **✓** |
 | **Built-in ZIO runtime** (`zio-app` modifier) | ✗ | **✓** |
 | Multiple modifiers per block (`silent,id=setup`) | partial | **✓** |
 | Scoped-by-default — blocks isolated unless you opt in | ✗ | **✓** |
@@ -145,6 +147,7 @@ Code fences with the info string `scala marklit:<modifiers>` are processed. Modi
 | `crash` | Assert that execution throws. The exception is rendered. |
 | `passthrough` | Render the block as-is — no compilation. |
 | `zio-app` | Wrap the block as a ZIO program and run it via ZIO's `Runtime.unsafe`. |
+| `top-level` | Compile the block verbatim as its own compilation unit (no wrapper). For constructs that are illegal or warn inside a method body — `opaque type`, `@main`, or matching a parameterized `enum`/ADT case. **Compile-only**: shows the code (and any diagnostics), never output. See [Top-level blocks](#top-level-blocks). |
 | `id=<name>` | Name this block's scope. |
 | `extends=<name>` | Create a child scope inheriting from `<name>`. |
 | `extends=<name>,append` | Append to `<name>` instead of branching. Subsequent `extends=<name>` blocks see the appended code. |
@@ -156,6 +159,47 @@ Code fences with the info string `scala marklit:<modifiers>` are processed. Modi
 Examples: `silent,id=setup`, `fail,extends=errors`, `zio-app,scala=3.8.2`. `id` and `append` are mutually exclusive; `append` requires `extends`.
 
 See [examples/base/src/main/markdown/tutorial.md](examples/base/src/main/markdown/tutorial.md) for a worked example of every feature.
+
+## Top-level blocks
+
+By default every block is wrapped in `object MarklitWrapper: def run(): Unit = …`, so your code is a **method body**. That's usually what you want — but some Scala constructs are only legal, or only warning-free, at the *top level* of a source file:
+
+- `opaque type` and `@main def` are **rejected** inside a method body.
+- Matching a *parameterized* `enum`/ADT case against a non-local type warns `the type test for X cannot be checked at runtime because it's a local class` — because an `enum` declared inside `def run()` becomes a *local* class.
+
+Mark such a block `top-level` and marklit compiles it verbatim as its own compilation unit. Because top-level code has no entry point, these blocks are **compile-only** — marklit renders the code (and any compile diagnostics) but never executes them.
+
+> **Why this matters (vs. mdoc).** mdoc wraps every block in a *class*, and its only escape hatch — `reset-object` — wraps in an object *and clears the scope*. By mdoc's own docs that works around `Value class may not be a member of another class` and `The outer reference in this type test cannot be checked at run time`, but an object member still can't be an `opaque type`, `@main`, or top-level `given`/`extension`, and `reset-object` throws away your prior definitions. marklit's `top-level` compiles at genuine file scope **and** hoists the definition forward into a normal executable block (below) — so you can show the type *and* run an example that uses it, warning-free.
+
+```scala marklit:top-level
+opaque type Celsius = Double
+object Celsius:
+  def apply(d: Double): Celsius = d
+  extension (c: Celsius) def value: Double = c
+```
+
+**Sharing a top-level definition with an executable example.** Give the top-level block an `id`, then `extends=` it from a normal block. Marklit *hoists* the inherited definition above the wrapper while your example runs inside `run()` — so the example compiles cleanly (no local-class warning) **and** shows its output:
+
+````markdown
+```scala marklit:top-level,id=actions
+enum CounterAction:
+  case Inc
+  case Set(v: Int)
+```
+
+```scala marklit:extends=actions
+val a: Any = CounterAction.Set(10)
+a match
+  case CounterAction.Set(v) => println(s"set $v")
+  case _                    => println("other")
+```
+````
+
+Rules:
+
+- `top-level` is strict — it may only be combined with scope options (`id`/`extends`/`append`), a version selector (`scala=3`, `scala=3.7.3`), and `show-warnings`. Pairing it with `silent`, `fail`, `zio-app`, `scala=shared`, etc. is a validation error.
+- Scopes are single-kind. A normal block may `extends=` a top-level scope (hoisting its definitions); a `top-level` block may **not** extend or append to a normal scope, and `append` must stay within one kind.
+- Version selectors work as usual: `top-level,scala=3.7.3` compiles against that exact version, and an `extends=` consumer must agree on the version. Top-level blocks do not participate in `--page-scope`, but an explicit `extends=` consumer composes with it.
 
 ## How marklit reads your Markdown
 

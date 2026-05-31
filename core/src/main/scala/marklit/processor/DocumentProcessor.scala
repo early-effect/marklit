@@ -136,7 +136,9 @@ trait CompilerService:
       scalaVersion: Option[String],
       location: Option[Location],
       scopeConfig: ScopeConfig = ScopeConfig.empty,
-      scopeMode: ScopeMode = ScopeMode.Isolated
+      scopeMode: ScopeMode = ScopeMode.Isolated,
+      topLevel: Boolean = false,
+      topLevelPriorCode: Vector[String] = Vector.empty
   ): IO[MarklitError, CompileResult]
 
   def execute(
@@ -144,7 +146,9 @@ trait CompilerService:
       priorCode: Vector[String],
       isZIOApp: Boolean,
       scalaVersion: Option[String],
-      classFilesDir: Option[java.nio.file.Path]
+      classFilesDir: Option[java.nio.file.Path],
+      topLevel: Boolean = false,
+      topLevelPriorCode: Vector[String] = Vector.empty
   ): IO[MarklitError, String]
 
 /** Live implementation that processes blocks sequentially, respecting scope
@@ -199,7 +203,8 @@ final class DocumentProcessorLive(
         val isAnon = cfg.id.isEmpty && cfg.extendsScope.isEmpty && !cfg.append
         val opaque =
           block.isPassthrough || block.isAnyShared ||
-            block.expectsFailure || block.expectsCrash || block.expectsWarnings
+            block.expectsFailure || block.expectsCrash ||
+            block.expectsWarnings || block.isTopLevel
         if !isAnon || opaque then (acc :+ block, initialized)
         else
           effectiveVersionFor(block) match
@@ -227,6 +232,7 @@ final class DocumentProcessorLive(
       (blocks.iterator.collect {
         case b
             if !b.isPassthrough &&
+              !b.isTopLevel &&
               b.scopeConfig.id.isEmpty &&
               b.scopeConfig.extendsScope.isEmpty &&
               !b.scopeConfig.append =>
@@ -285,6 +291,26 @@ final class DocumentProcessorLive(
       block: CodeBlock,
       versionsInUse: Vector[String]
   ): IO[MarklitError, BlockResult] =
+    // `top-level` is strict: it may only accompany scope options and a version
+    // selector. Reject illegal combinations (e.g. top-level,silent) up front —
+    // the error flows through the same path as a compile/runtime failure and
+    // fails the run via DocumentResult.errors.
+    block.modifierConflicts match
+      case Some(msg) =>
+        ZIO.succeed(
+          BlockResult(
+            block,
+            None,
+            None,
+            Some(MarklitError.ValidationError(block.location, msg))
+          )
+        )
+      case None => processBlockChecked(block, versionsInUse)
+
+  private def processBlockChecked(
+      block: CodeBlock,
+      versionsInUse: Vector[String]
+  ): IO[MarklitError, BlockResult] =
     // Resolve the version this block compiles against. Precedence:
     //   1. Per-block specific version (e.g. `scala=3.7.0`) — exact request.
     //   2. Per-block bare-major (e.g. `scala=2`) — pick a default for that
@@ -331,23 +357,34 @@ final class DocumentProcessorLive(
       processSharedBlock(block, effectiveVersion, versionsInUse)
     else
       val effect = for
-        // Resolve scope and get inherited code
+        // Resolve scope and get inherited code, split into hoisted top-level
+        // definitions (emitted at file scope) and run-body prior code.
         resolved <- scopeManager.resolveScope(
           block.scopeConfig,
           block.location,
-          Some(effectiveVersion)
+          Some(effectiveVersion),
+          block.isTopLevel
         )
-        allPriorCode = resolved.inheritedCode ++ resolved.scope.priorCode
+        // The resolved scope's own priorCode is folded into the correct bucket
+        // by hoistCode/bodyCode based on the scope's kind.
+        hoistCode = resolved.hoistCode
+        bodyCode = resolved.bodyCode
 
         // Compile
-        compileResult <- compileBlock(block, allPriorCode, requestedVersion)
+        compileResult <- compileBlock(
+          block,
+          bodyCode,
+          requestedVersion,
+          hoistCode
+        )
 
         // Execute if compilation succeeded and block should execute
         execResult <- executeBlock(
           block,
-          allPriorCode,
+          bodyCode,
           compileResult,
-          requestedVersion
+          requestedVersion,
+          hoistCode
         )
 
         // Record code in scope for subsequent blocks. Skip fail/crash blocks
@@ -439,23 +476,26 @@ final class DocumentProcessorLive(
   private def compileBlock(
       block: CodeBlock,
       priorCode: Vector[String],
-      requestedVersion: Option[String]
+      requestedVersion: Option[String],
+      topLevelPriorCode: Vector[String] = Vector.empty
   ): IO[MarklitError, CompileResult] =
     val v = requestedVersion
     val loc = Some(block.location)
+    def doCompile: IO[MarklitError, CompileResult] =
+      compiler.compile(
+        block.code,
+        priorCode,
+        block.isZIOApp,
+        v,
+        loc,
+        block.scopeConfig,
+        scopeMode,
+        block.isTopLevel,
+        topLevelPriorCode
+      )
     if block.expectsFailure then
       // For fail blocks, we expect compilation to fail
-      compiler
-        .compile(
-          block.code,
-          priorCode,
-          block.isZIOApp,
-          v,
-          loc,
-          block.scopeConfig,
-          scopeMode
-        )
-        .either
+      doCompile.either
         .map {
           case Left(_) =>
             // Expected failure - treat as success
@@ -480,16 +520,7 @@ final class DocumentProcessorLive(
         }
     else if block.expectsWarnings then
       // For warn blocks, we expect compilation warnings
-      compiler
-        .compile(
-          block.code,
-          priorCode,
-          block.isZIOApp,
-          v,
-          loc,
-          block.scopeConfig,
-          scopeMode
-        )
+      doCompile
         .map { cr =>
           val hasWarnings = cr.warnings.nonEmpty
           if hasWarnings then
@@ -510,16 +541,7 @@ final class DocumentProcessorLive(
               )
             )
         }
-    else
-      compiler.compile(
-        block.code,
-        priorCode,
-        block.isZIOApp,
-        v,
-        loc,
-        block.scopeConfig,
-        scopeMode
-      )
+    else doCompile
 
   /** Result of execution, including both output and any captured error */
   private case class ExecResult(
@@ -531,16 +553,29 @@ final class DocumentProcessorLive(
       block: CodeBlock,
       priorCode: Vector[String],
       compileResult: CompileResult,
-      requestedVersion: Option[String]
+      requestedVersion: Option[String],
+      topLevelPriorCode: Vector[String] = Vector.empty
   ): IO[MarklitError, ExecResult] =
     val v = requestedVersion
     val dir = compileResult.classFilesDir
+    // top-level blocks are compile-only (shouldExecute == false), so we never
+    // reach the execute calls for them. A *normal* block that hoists top-level
+    // definitions does execute, and must pass the same topLevelPriorCode so the
+    // output marker (which hashes it) matches the one baked in at compile time.
+    def doExecute =
+      compiler.execute(
+        block.code,
+        priorCode,
+        block.isZIOApp,
+        v,
+        dir,
+        block.isTopLevel,
+        topLevelPriorCode
+      )
     if compileResult.success && block.shouldExecute then
       if block.expectsCrash then
         // For crash blocks, expect runtime exception - capture it for display
-        compiler
-          .execute(block.code, priorCode, block.isZIOApp, v, dir)
-          .either
+        doExecute.either
           .map {
             case Left(err @ MarklitError.RuntimeError(_, output)) =>
               ExecResult(
@@ -557,10 +592,7 @@ final class DocumentProcessorLive(
                 None
               )
           }
-      else
-        compiler
-          .execute(block.code, priorCode, block.isZIOApp, v, dir)
-          .map(out => ExecResult(Some(out), None))
+      else doExecute.map(out => ExecResult(Some(out), None))
     else ZIO.succeed(ExecResult(None, None))
 
 object DocumentProcessorLive:
