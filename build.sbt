@@ -49,7 +49,9 @@ ThisBuild / publishTo := {
 }
 
 // PGP key used to sign published artifacts (sbt-pgp + local gpg keyring).
-usePgpKeyHex("2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
+// CI overrides the key via PGP_KEY_HEX (dedicated GitHub Actions signing key);
+// local manual publishing falls back to the personal key on this machine.
+usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "2F64727A87F1BCF42FD307DD8582C4F16659A7D6"))
 
 // Only the sbt plugin is published; everything else is internal or bundled.
 lazy val publishSettings = Seq(

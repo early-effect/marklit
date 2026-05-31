@@ -1,0 +1,51 @@
+name: Release
+
+# Publishes the sbt-marklit plugin to Maven Central (Sonatype Central Portal)
+# when a version tag is pushed. sbt-dynver derives the version from the tag
+# (e.g. v0.1.0 -> 0.1.0), so the tag name IS the released version.
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags so sbt-dynver computes the version from the tag.
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Import signing key
+        env:
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+        run: |
+          # Allow gpg to take the passphrase from sbt-pgp non-interactively.
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          echo "pinentry-mode loopback"   >> ~/.gnupg/gpg.conf
+          gpgconf --kill gpg-agent || true
+          echo "$PGP_SECRET" | base64 --decode | gpg --batch --import
+
+      - name: Publish to Maven Central
+        env:
+          # Select the dedicated CI signing key (build.sbt reads PGP_KEY_HEX).
+          PGP_KEY_HEX: FEDF83887D777EC053C0B0BC79C4122F7D97ADEC
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          # sbt 1.11 auto-appends a central.sonatype.com credential from these.
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: sbt release
