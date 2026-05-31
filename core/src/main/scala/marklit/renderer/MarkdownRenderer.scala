@@ -95,64 +95,64 @@ object MarkdownRenderer:
       ver: Option[String],
       config: RenderConfig
   ): Unit =
-      // For fail blocks, show the expected compilation errors
-      if block.expectsFailure then
+    // For fail blocks, show the expected compilation errors
+    if block.expectsFailure then
+      br.compileResult.foreach { cr =>
+        if cr.diagnostics.nonEmpty && config.showCompileErrors then
+          renderDiagnostics(
+            sb,
+            cr.diagnostics.filter(_.severity == DiagnosticSeverity.Error),
+            config,
+            ver
+          )
+      }
+    // For warn blocks, show the expected warnings
+    else if block.expectsWarnings then
+      br.compileResult.foreach { cr =>
+        val warnings =
+          cr.diagnostics.filter(_.severity == DiagnosticSeverity.Warning)
+        if warnings.nonEmpty && config.showCompileErrors then
+          renderDiagnostics(sb, warnings, config, ver)
+      }
+      // Also show normal output if any
+      if block.showOutput then
+        br.executionOutput.filter(_.nonEmpty).foreach { output =>
+          renderOutput(sb, output, config, ver)
+        }
+    // For crash blocks, show the exception
+    else if block.expectsCrash then
+      br.error.foreach {
+        case MarklitError.RuntimeError(ex, output)
+            if config.showRuntimeErrors =>
+          if output.nonEmpty then renderOutput(sb, output, config, ver)
+          sb.append("```\n")
+          if config.showScalaVersion then
+            ver.foreach(v => sb.append(s"// Scala $v\n"))
+          sb.append(
+            s"${config.errorPrefix}Exception: ${ex.getClass.getSimpleName}: ${ex.getMessage}\n"
+          )
+          sb.append("```\n")
+        case _ => ()
+      }
+    // For normal blocks, show output if configured
+    else if block.showOutput then
+      // Handle compile errors
+      if !br.compileResult.exists(_.success) && config.showCompileErrors then
         br.compileResult.foreach { cr =>
-          if cr.diagnostics.nonEmpty && config.showCompileErrors then
-            renderDiagnostics(
-              sb,
-              cr.diagnostics.filter(_.severity == DiagnosticSeverity.Error),
-              config,
-              ver
-            )
+          renderDiagnostics(sb, cr.errors, config, ver)
         }
-      // For warn blocks, show the expected warnings
-      else if block.expectsWarnings then
-        br.compileResult.foreach { cr =>
-          val warnings =
-            cr.diagnostics.filter(_.severity == DiagnosticSeverity.Warning)
-          if warnings.nonEmpty && config.showCompileErrors then
-            renderDiagnostics(sb, warnings, config, ver)
-        }
-        // Also show normal output if any
-        if block.showOutput then
-          br.executionOutput.filter(_.nonEmpty).foreach { output =>
-            renderOutput(sb, output, config, ver)
-          }
-      // For crash blocks, show the exception
-      else if block.expectsCrash then
-        br.error.foreach {
-          case MarklitError.RuntimeError(ex, output)
-              if config.showRuntimeErrors =>
-            if output.nonEmpty then renderOutput(sb, output, config, ver)
-            sb.append("```\n")
-            if config.showScalaVersion then
-              ver.foreach(v => sb.append(s"// Scala $v\n"))
-            sb.append(
-              s"${config.errorPrefix}Exception: ${ex.getClass.getSimpleName}: ${ex.getMessage}\n"
-            )
-            sb.append("```\n")
-          case _ => ()
-        }
-      // For normal blocks, show output if configured
-      else if block.showOutput then
-        // Handle compile errors
-        if !br.compileResult.exists(_.success) && config.showCompileErrors then
+      // Handle execution output (and compile warnings if enabled)
+      else
+        if block.showWarnings(config.showCompileWarnings) then
           br.compileResult.foreach { cr =>
-            renderDiagnostics(sb, cr.errors, config, ver)
+            val warnings =
+              cr.diagnostics.filter(_.severity == DiagnosticSeverity.Warning)
+            if warnings.nonEmpty then
+              renderDiagnostics(sb, warnings, config, ver)
           }
-        // Handle execution output (and compile warnings if enabled)
-        else
-          if block.showWarnings(config.showCompileWarnings) then
-            br.compileResult.foreach { cr =>
-              val warnings =
-                cr.diagnostics.filter(_.severity == DiagnosticSeverity.Warning)
-              if warnings.nonEmpty then
-                renderDiagnostics(sb, warnings, config, ver)
-            }
-          br.executionOutput.filter(_.nonEmpty).foreach { output =>
-            renderOutput(sb, output, config, ver)
-          }
+        br.executionOutput.filter(_.nonEmpty).foreach { output =>
+          renderOutput(sb, output, config, ver)
+        }
 
   private def renderOutput(
       sb: StringBuilder,
@@ -188,10 +188,10 @@ object MarkdownRenderer:
     sb.append("```\n")
 
   /** Render a `scala=shared` / `scala=shared-{mv}` block's per-version
-    * executions. When every execution succeeded with identical stdout, render
-    * a single output block headed by `// All cross versions: Scala v1, v2, …`.
-    * Otherwise emit one labeled output (or compile-error / runtime-error)
-    * block per execution, in the order versions appear in [[crossExecutions]].
+    * executions. When every execution succeeded with identical stdout, render a
+    * single output block headed by `// All cross versions: Scala v1, v2, …`.
+    * Otherwise emit one labeled output (or compile-error / runtime-error) block
+    * per execution, in the order versions appear in [[crossExecutions]].
     */
   private def renderCrossExecutions(
       sb: StringBuilder,
@@ -227,7 +227,9 @@ object MarkdownRenderer:
             if block.showWarnings(config.showCompileWarnings) then
               x.compileResult.foreach { cr =>
                 val warnings =
-                  cr.diagnostics.filter(_.severity == DiagnosticSeverity.Warning)
+                  cr.diagnostics.filter(
+                    _.severity == DiagnosticSeverity.Warning
+                  )
                 if warnings.nonEmpty then
                   renderDiagnostics(sb, warnings, config, ver)
               }

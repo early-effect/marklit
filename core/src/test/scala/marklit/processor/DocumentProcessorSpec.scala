@@ -41,6 +41,11 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
     val executeCallsWithDir =
       scala.collection.mutable.ArrayBuffer
         .empty[(String, Option[java.nio.file.Path])]
+    // (code, topLevel, topLevelPriorCode) — lets tests assert that top-level
+    // blocks compile unwrapped and that inherited definitions are hoisted.
+    val compileCallsTopLevel =
+      scala.collection.mutable.ArrayBuffer
+        .empty[(String, Boolean, Vector[String])]
 
     override def compile(
         code: String,
@@ -49,10 +54,13 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         scalaVersion: Option[String],
         location: Option[Location],
         scopeConfig: ScopeConfig,
-        scopeMode: ScopeMode
+        scopeMode: ScopeMode,
+        topLevel: Boolean,
+        topLevelPriorCode: Vector[String]
     ): IO[MarklitError, CompileResult] =
       compileCalls += ((code, priorCode))
       compileCallsWithVersion += ((code, priorCode, scalaVersion))
+      compileCallsTopLevel += ((code, topLevel, topLevelPriorCode))
       ZIO.succeed(
         compileResults.getOrElse(
           code,
@@ -65,7 +73,9 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         priorCode: Vector[String],
         isZIOApp: Boolean,
         scalaVersion: Option[String],
-        classFilesDir: Option[java.nio.file.Path]
+        classFilesDir: Option[java.nio.file.Path],
+        topLevel: Boolean,
+        topLevelPriorCode: Vector[String]
     ): IO[MarklitError, String] =
       executeCalls += ((code, priorCode))
       executeCallsWithVersion += ((code, priorCode, scalaVersion))
@@ -1095,10 +1105,13 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
               scalaVersion: Option[String],
               location: Option[Location],
               scopeConfig: ScopeConfig,
-              scopeMode: ScopeMode
+              scopeMode: ScopeMode,
+              topLevel: Boolean,
+              topLevelPriorCode: Vector[String]
           ): IO[MarklitError, CompileResult] =
             compileCalls += ((code, priorCode))
             compileCallsWithVersion += ((code, priorCode, scalaVersion))
+            compileCallsTopLevel += ((code, topLevel, topLevelPriorCode))
             val isTwo = scalaVersion.exists(_.startsWith("2"))
             val sharedFailsHere = code == "bad code" && isTwo
             ZIO.succeed(
@@ -1171,6 +1184,216 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         yield assertTrue(
           result.blockResults.head.crossExecutions.isEmpty
         )
+      }
+    ),
+    suite("top-level blocks")(
+      test("a top-level block compiles unwrapped and does not execute") {
+        val block = makeBlock("opaque type C = Int", Set(Modifier.TopLevel))
+        val compiler = new TestCompiler()
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(block))
+        yield
+          val (_, topLevel, hoist) = compiler.compileCallsTopLevel.head
+          assertTrue(
+            result.isSuccess,
+            // compiled with topLevel = true, no hoist prior for a lone block
+            topLevel,
+            hoist.isEmpty,
+            // compile-only: never executed
+            compiler.executeCalls.isEmpty
+          )
+      },
+      test(
+        "a normal block extending a top-level scope receives the def as hoisted prior code"
+      ) {
+        // The motivating shape: definition in a top-level scope, consumed by a
+        // normal executable block. The mock records that the consumer compiled
+        // with the definition in its topLevelPriorCode (hoist) bucket, and with
+        // an empty run-body prior code.
+        val tlDef = makeBlock(
+          "opaque type C = Int",
+          Set(Modifier.TopLevel),
+          ScopeConfig(id = Some("types"))
+        )
+        val consumer = makeBlock(
+          "val c: C = ???",
+          scopeConfig = ScopeConfig(extendsScope = Some("types"))
+        )
+        val compiler = new TestCompiler()
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          _ <- processor.process(Vector(tlDef, consumer))
+        yield
+          // calls[0] = the top-level def, calls[1] = the consumer
+          val (defCode, defTopLevel, _) = compiler.compileCallsTopLevel(0)
+          val (consCode, consTopLevel, consHoist) =
+            compiler.compileCallsTopLevel(1)
+          val (_, consBodyPrior) = compiler.compileCalls(1)
+          assertTrue(
+            defCode == "opaque type C = Int",
+            defTopLevel,
+            consCode == "val c: C = ???",
+            !consTopLevel,
+            consHoist == Vector("opaque type C = Int"),
+            consBodyPrior.isEmpty
+          )
+      },
+      test(
+        "top-level combined with a behavioral modifier fails the run with a ValidationError"
+      ) {
+        val bad = makeBlock(
+          "opaque type C = Int",
+          Set(Modifier.TopLevel, Modifier.Silent)
+        )
+        val compiler = new TestCompiler()
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(bad))
+        yield assertTrue(
+          !result.isSuccess,
+          // never reached the compiler — rejected up front
+          compiler.compileCalls.isEmpty,
+          result.blockResults.head.error.exists {
+            case MarklitError.ValidationError(_, msg) =>
+              msg.contains("top-level")
+            case _ => false
+          }
+        )
+      },
+      test("a top-level block is not folded into the page scope") {
+        // Under --page-scope, anonymous normal blocks share a chain; a
+        // top-level block must opt out (it can't live in the run-body chain).
+        val first = makeBlock("val x = 1")
+        val tl = makeBlock("opaque type C = Int", Set(Modifier.TopLevel))
+        val third = makeBlock("println(x)")
+        val compiler = new TestCompiler()
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(
+            scopeManager,
+            compiler,
+            scopeMode = ScopeMode.Page
+          )
+          _ <- processor.process(Vector(first, tl, third))
+        yield
+          val (_, tlTopLevel, _) = compiler.compileCallsTopLevel(1)
+          val (_, thirdPrior) = compiler.compileCalls(2)
+          assertTrue(
+            // the top-level block compiled unwrapped
+            tlTopLevel,
+            // page scope still threads `val x` to the third block, unaffected
+            // by the top-level block sitting between them
+            thirdPrior == Vector("val x = 1")
+          )
+      },
+      test(
+        "cross-version: a top-level block requesting a specific version forwards it"
+      ) {
+        val block = makeBlock(
+          "opaque type C = Int",
+          Set(Modifier.TopLevel),
+          ScopeConfig(scalaVersion = Some("3.7.3"))
+        )
+        val compiler = new TestCompiler(defaultScalaVersion = "3.8.3")
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          _ <- processor.process(Vector(block))
+        yield
+          val (_, _, version) = compiler.compileCallsWithVersion.head
+          val (_, topLevel, _) = compiler.compileCallsTopLevel.head
+          assertTrue(
+            version == Some("3.7.3"),
+            topLevel
+          )
+      },
+      test(
+        "cross-version: a bare-major top-level block (scala=2) auto-resolves to a 2.x default and stays top-level"
+      ) {
+        val block = makeBlock(
+          "opaque type C = Int",
+          Set(Modifier.TopLevel),
+          ScopeConfig(scalaVersion = Some("2"))
+        )
+        // Default is 3.x; bare-major 2 must resolve to a 2.13 default.
+        val compiler = new TestCompiler(
+          defaultScalaVersion = "3.8.3",
+          majorDefaults = Map("2" -> "2.13.16")
+        )
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(block))
+        yield
+          val (_, _, version) = compiler.compileCallsWithVersion.head
+          val (_, topLevel, _) = compiler.compileCallsTopLevel.head
+          assertTrue(
+            result.isSuccess,
+            version == Some("2.13.16"),
+            topLevel,
+            result.blockResults.head.effectiveScalaVersion == Some("2.13.16")
+          )
+      },
+      test(
+        "cross-version: a bare-major top-level block with no default for that major is skipped"
+      ) {
+        val block = makeBlock(
+          "opaque type C = Int",
+          Set(Modifier.TopLevel),
+          ScopeConfig(scalaVersion = Some("1"))
+        )
+        val compiler = new TestCompiler(defaultScalaVersion = "3.8.3")
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(block))
+        yield assertTrue(
+          result.blockResults.head.skipped,
+          result.isSuccess, // skipped blocks don't fail the run
+          compiler.compileCalls.isEmpty // never compiled
+        )
+      },
+      test(
+        "cross-version: a normal block extends a version-specific top-level scope and inherits the hoist at that version"
+      ) {
+        val tlDef = makeBlock(
+          "opaque type C = Int",
+          Set(Modifier.TopLevel),
+          ScopeConfig(id = Some("types"), scalaVersion = Some("3.7.3"))
+        )
+        val consumer = makeBlock(
+          "val c: C = ???",
+          scopeConfig = ScopeConfig(
+            extendsScope = Some("types"),
+            scalaVersion = Some("3.7.3")
+          )
+        )
+        val compiler = new TestCompiler(defaultScalaVersion = "3.8.3")
+        for
+          scopeManager <- ZIO.service[ScopeManager]
+          processor = DocumentProcessorLive(scopeManager, compiler)
+          result <- processor.process(Vector(tlDef, consumer))
+        yield
+          val (_, defTopLevel, _) = compiler.compileCallsTopLevel(0)
+          val (_, defVersion) =
+            (
+              compiler.compileCallsWithVersion(0)._1,
+              compiler.compileCallsWithVersion(0)._3
+            )
+          val (_, consTopLevel, consHoist) = compiler.compileCallsTopLevel(1)
+          val consVersion = compiler.compileCallsWithVersion(1)._3
+          assertTrue(
+            result.isSuccess,
+            defTopLevel,
+            defVersion == Some("3.7.3"),
+            !consTopLevel,
+            consHoist == Vector("opaque type C = Int"),
+            consVersion == Some("3.7.3")
+          )
       }
     )
   ).provide(ScopeManager.layer) @@ TestAspect.sequential

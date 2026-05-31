@@ -15,11 +15,38 @@ final case class CodeBlock(
   def showWarnings(default: Boolean): Boolean =
     showWarningsOverride.getOrElse(default)
 
+  /** Whether this block compiles verbatim as its own compilation unit (no
+    * `MarklitWrapper` object). Top-level blocks are always compile-only.
+    */
+  def isTopLevel: Boolean = modifiers.contains(Modifier.TopLevel)
+
   /** Whether this block should be executed */
   def shouldExecute: Boolean =
-    !modifiers.contains(Modifier.CompileOnly) &&
+    !isTopLevel &&
+      !modifiers.contains(Modifier.CompileOnly) &&
       !modifiers.contains(Modifier.Fail) &&
       !modifiers.contains(Modifier.Passthrough)
+
+  /** For a `top-level` block, the set of other modifiers it was combined with —
+    * `top-level` is strict and may only accompany scope options
+    * (`id`/`extends`/`append`), version selectors, and `show-warnings`, none of
+    * which live in [[modifiers]]. Any *other* modifier here is a misuse.
+    *
+    * Returns `Some(message)` describing the conflict, or `None` when the block
+    * is either not top-level or top-level with no conflicting modifiers.
+    */
+  def modifierConflicts: Option[String] =
+    if !isTopLevel then None
+    else
+      val others = (modifiers - Modifier.TopLevel).toList
+      if others.isEmpty then None
+      else
+        val names = others.map(Modifier.displayName).sorted.mkString(", ")
+        Some(
+          s"'top-level' cannot be combined with: $names. " +
+            "top-level blocks are compile-only and may only use scope options " +
+            "(id/extends/append), a Scala version, and show-warnings."
+        )
 
   /** Whether this block expects compilation to fail */
   def expectsFailure: Boolean = modifiers.contains(Modifier.Fail)

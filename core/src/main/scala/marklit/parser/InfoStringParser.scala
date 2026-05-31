@@ -118,8 +118,7 @@ object InfoStringParser:
                   case "shared" => modifiers += Modifier.Shared
                   case other if other.startsWith("shared-") =>
                     val mv = other.stripPrefix("shared-")
-                    if mv.nonEmpty then
-                      modifiers += Modifier.SharedMajor(mv)
+                    if mv.nonEmpty then modifiers += Modifier.SharedMajor(mv)
                   case _ => scalaVersion = Some(value)
               case "show-warnings" => showWarningsOverride = parseBool(value)
               case _               => () // Ignore unknown keys

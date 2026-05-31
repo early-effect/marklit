@@ -20,14 +20,16 @@ ThisBuild / scalaVersion := marklitScalaVersion
 ThisBuild / organization := "io.github.russwyte"
 // version is derived from git tags by sbt-dynver (tag v0.1.0 -> 0.1.0).
 
-ThisBuild / organizationName     := "russwyte"
+ThisBuild / organizationName := "russwyte"
 ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
-ThisBuild / licenses             := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage             := Some(url("https://github.com/russwyte/marklit"))
-ThisBuild / scmInfo              := Some(
+ThisBuild / licenses := List(
+  "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt")
+)
+ThisBuild / homepage := Some(url("https://github.com/russwyte/marklit"))
+ThisBuild / scmInfo := Some(
   ScmInfo(
     url("https://github.com/russwyte/marklit"),
-    "scm:git@github.com:russwyte/marklit.git",
+    "scm:git@github.com:russwyte/marklit.git"
   )
 )
 ThisBuild / developers := List(
@@ -35,7 +37,7 @@ ThisBuild / developers := List(
     id = "russwyte",
     name = "Russ White",
     email = "356303+russwyte@users.noreply.github.com",
-    url = url("https://github.com/russwyte"),
+    url = url("https://github.com/russwyte")
   )
 )
 ThisBuild / versionScheme := Some("early-semver")
@@ -43,7 +45,8 @@ ThisBuild / versionScheme := Some("early-semver")
 // Publishing to Sonatype's Central Portal. sbt 1.11+ has built-in support via
 // `localStaging` / `publishSigned` / `sonaRelease` — no sbt-sonatype plugin needed.
 ThisBuild / publishTo := {
-  val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
+  val centralSnapshots =
+    "https://central.sonatype.com/repository/maven-snapshots/"
   if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
   else localStaging.value
 }
@@ -51,11 +54,13 @@ ThisBuild / publishTo := {
 // PGP key used to sign published artifacts (sbt-pgp + local gpg keyring).
 // CI overrides the key via PGP_KEY_HEX (dedicated GitHub Actions signing key);
 // local manual publishing falls back to the personal key on this machine.
-usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "2F64727A87F1BCF42FD307DD8582C4F16659A7D6"))
+usePgpKeyHex(
+  sys.env.getOrElse("PGP_KEY_HEX", "2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
+)
 
 // Only the sbt plugin is published; everything else is internal or bundled.
 lazy val publishSettings = Seq(
-  publishMavenStyle    := true,
+  publishMavenStyle := true,
   pomIncludeRepository := { _ => false }
 )
 

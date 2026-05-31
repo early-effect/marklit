@@ -178,19 +178,26 @@ object BlockCacheKey:
       startLine: Int,
       startColumn: Int,
       scopeConfig: ScopeConfig = ScopeConfig.empty,
-      scopeMode: ScopeMode = ScopeMode.Isolated
+      scopeMode: ScopeMode = ScopeMode.Isolated,
+      topLevel: Boolean = false,
+      topLevelPriorCode: Vector[String] = Vector.empty
   ): BlockCacheKey =
     val md = MessageDigest.getInstance("SHA-256")
     def feed(s: String): Unit =
       md.update(s.getBytes(java.nio.charset.StandardCharsets.UTF_8))
       md.update(0.toByte)
     // Version prefix — bump on key-shape changes to invalidate old entries.
-    feed("v2")
+    feed("v3")
     feed(scalaVersion)
     feed(file)
     feed(startLine.toString)
     feed(startColumn.toString)
     feed(if isZIOApp then "z" else "n")
+    feed(if topLevel then "t" else "w")
+    feed("hoist")
+    md.update(topLevelPriorCode.size.toString.getBytes("UTF-8"))
+    md.update(0.toByte)
+    topLevelPriorCode.foreach(feed)
     feed("scalac")
     scalacOptions.foreach(feed)
     feed("cp")
