@@ -78,8 +78,8 @@ final case class ResolvedScope(
     */
   def inheritedCode: Vector[String] = inheritedTopLevel ++ inheritedBody
 
-  /** Definitions to emit at file scope: inherited top-level ancestor code,
-    * plus this scope's own code when it is itself a top-level scope.
+  /** Definitions to emit at file scope: inherited top-level ancestor code, plus
+    * this scope's own code when it is itself a top-level scope.
     */
   def hoistCode: Vector[String] =
     if scope.topLevel then inheritedTopLevel ++ scope.priorCode
@@ -283,8 +283,7 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
         parent.topLevel == topLevel ||
           (parent.topLevel && !topLevel && !forAppend)
       if allowed then None
-      else
-        Some(MarklitError.ValidationError(location, kindMismatch(parent.id)))
+      else Some(MarklitError.ValidationError(location, kindMismatch(parent.id)))
 
     // Re-using an existing `id=` must match the scope's kind *exactly* — unlike
     // the extends relaxation above, you cannot redeclare a top-level scope as a
@@ -292,7 +291,8 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
     // at creation.
     def sameKindError(existing: Scope): Option[MarklitError] =
       if existing.topLevel == topLevel then None
-      else Some(MarklitError.ValidationError(location, kindMismatch(existing.id)))
+      else
+        Some(MarklitError.ValidationError(location, kindMismatch(existing.id)))
 
     (config.id, config.extendsScope, config.append) match
       // No scope config - fresh anonymous scope per block (isolated by
@@ -335,7 +335,7 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
           case Some(existing) =>
             sameKindError(existing) match
               case Some(err) => (Left(err), state)
-              case None       =>
+              case None      =>
                 // A subsequent block re-using `id=foo` must agree on the Scala
                 // version. The version we record on a scope at creation is the
                 // block's *requested* version (config.scalaVersion); we compare
@@ -355,14 +355,19 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
                     )
                   case _ =>
                     (
-                      Right(ResolvedScope(existing, Vector.empty, Vector.empty)),
+                      Right(
+                        ResolvedScope(existing, Vector.empty, Vector.empty)
+                      ),
                       state
                     )
           case None =>
             val newScope =
               Scope.named(id, config.scalaVersion, None, topLevel)
             val newState = state.addScope(newScope)
-            (Right(ResolvedScope(newScope, Vector.empty, Vector.empty)), newState)
+            (
+              Right(ResolvedScope(newScope, Vector.empty, Vector.empty)),
+              newState
+            )
 
       // id=foo,extends=bar - create named child scope
       case (Some(id), Some(parentId), false) =>
@@ -380,7 +385,7 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
           case Some(parent) =>
             crossKindError(parent, forAppend = false) match
               case Some(err) => (Left(err), state)
-              case None       =>
+              case None      =>
                 // Check version compatibility
                 (config.scalaVersion, parent.scalaVersion) match
                   case (Some(childV), Some(parentV)) if childV != parentV =>
@@ -398,7 +403,7 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
                       case Some(existing) =>
                         sameKindError(existing) match
                           case Some(err) => (Left(err), state)
-                          case None       =>
+                          case None      =>
                             // Re-use of `id=foo` must not flip the version.
                             (config.scalaVersion, existing.scalaVersion) match
                               case (Some(reqV), Some(existingV))
@@ -415,7 +420,10 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
                               case _ =>
                                 val (tl, body) =
                                   collectInheritedCode(parentId, state)
-                                (Right(ResolvedScope(existing, tl, body)), state)
+                                (
+                                  Right(ResolvedScope(existing, tl, body)),
+                                  state
+                                )
                       case None =>
                         val effectiveVersion =
                           config.scalaVersion.orElse(parent.scalaVersion)
@@ -446,7 +454,7 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
           case Some(parent) =>
             crossKindError(parent, forAppend = false) match
               case Some(err) => (Left(err), state)
-              case None       =>
+              case None      =>
                 // Check version compatibility
                 (config.scalaVersion, parent.scalaVersion) match
                   case (Some(childV), Some(parentV)) if childV != parentV =>
@@ -490,7 +498,7 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
           case Some(parent) =>
             crossKindError(parent, forAppend = true) match
               case Some(err) => (Left(err), state)
-              case None       =>
+              case None      =>
                 // Check version compatibility
                 (config.scalaVersion, parent.scalaVersion) match
                   case (Some(v), Some(parentV)) if v != parentV =>

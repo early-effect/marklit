@@ -273,7 +273,9 @@ object ScopeManagerSpec extends ZIOSpecDefault:
     ),
 
     suite("top-level scopes")(
-      test("a normal block extending a top-level scope hoists the inherited code") {
+      test(
+        "a normal block extending a top-level scope hoists the inherited code"
+      ) {
         // The motivating case: an opaque type / enum defined in a top-level
         // scope, consumed by a normal executable block. The definition must be
         // hoisted (file scope), the consumer's own code stays run-body.
@@ -288,7 +290,9 @@ object ScopeManagerSpec extends ZIOSpecDefault:
           r.bodyCode.isEmpty
         )
       },
-      test("a top-level chain accumulates all definitions in the hoist bucket") {
+      test(
+        "a top-level chain accumulates all definitions in the hoist bucket"
+      ) {
         val a = ScopeConfig(id = Some("a"))
         val b = ScopeConfig(id = Some("b"), extendsScope = Some("a"))
         for
@@ -302,7 +306,10 @@ object ScopeManagerSpec extends ZIOSpecDefault:
             testLocation
           )
         yield assertTrue(
-          consumer.hoistCode == Vector("opaque type A = Int", "opaque type B = Int"),
+          consumer.hoistCode == Vector(
+            "opaque type A = Int",
+            "opaque type B = Int"
+          ),
           consumer.bodyCode.isEmpty
         )
       },
@@ -314,10 +321,17 @@ object ScopeManagerSpec extends ZIOSpecDefault:
           _ <- ScopeManager.recordCode("tlbase", "opaque type X = Int")
           a <- ScopeManager.resolveScope(app, testLocation, topLevel = true)
           _ <- ScopeManager.recordCode(a.scope.id, "opaque type Y = Int")
-          reread <- ScopeManager.resolveScope(base, testLocation, topLevel = true)
+          reread <- ScopeManager.resolveScope(
+            base,
+            testLocation,
+            topLevel = true
+          )
         yield assertTrue(
           a.scope.id == "tlbase",
-          reread.hoistCode == Vector("opaque type X = Int", "opaque type Y = Int")
+          reread.hoistCode == Vector(
+            "opaque type X = Int",
+            "opaque type Y = Int"
+          )
         )
       },
       test(

@@ -40,7 +40,9 @@ object LocalClassWarnSpec extends ZIOSpecDefault:
       |println(s)""".stripMargin
 
   def spec = suite("LocalClassWarn")(
-    test("wrapped in def run(): the enum is a local class and the match warns") {
+    test(
+      "wrapped in def run(): the enum is a local class and the match warns"
+    ) {
       val all = enumDef + "\n" + matchBody
       for result <- Compiler.compile(all, ScopeContext.empty)
       yield assertTrue(

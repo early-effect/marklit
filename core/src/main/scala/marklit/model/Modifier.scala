@@ -18,8 +18,9 @@ enum Modifier:
 
 object Modifier:
   /** Parse a modifier from its string representation. Shared / SharedMajor are
-    * not parsed here — they're constructed by [[marklit.parser.InfoStringParser]]
-    * from the `scala=shared` / `scala=shared-{mv}` info-string forms.
+    * not parsed here — they're constructed by
+    * [[marklit.parser.InfoStringParser]] from the `scala=shared` /
+    * `scala=shared-{mv}` info-string forms.
     */
   def parse(s: String): Option[Modifier] = s.toLowerCase match
     case "silent"       => Some(Silent)

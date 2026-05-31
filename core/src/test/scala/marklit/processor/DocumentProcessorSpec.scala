@@ -1367,8 +1367,10 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         )
         val consumer = makeBlock(
           "val c: C = ???",
-          scopeConfig =
-            ScopeConfig(extendsScope = Some("types"), scalaVersion = Some("3.7.3"))
+          scopeConfig = ScopeConfig(
+            extendsScope = Some("types"),
+            scalaVersion = Some("3.7.3")
+          )
         )
         val compiler = new TestCompiler(defaultScalaVersion = "3.8.3")
         for
@@ -1378,7 +1380,10 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         yield
           val (_, defTopLevel, _) = compiler.compileCallsTopLevel(0)
           val (_, defVersion) =
-            (compiler.compileCallsWithVersion(0)._1, compiler.compileCallsWithVersion(0)._3)
+            (
+              compiler.compileCallsWithVersion(0)._1,
+              compiler.compileCallsWithVersion(0)._3
+            )
           val (_, consTopLevel, consHoist) = compiler.compileCallsTopLevel(1)
           val consVersion = compiler.compileCallsWithVersion(1)._3
           assertTrue(

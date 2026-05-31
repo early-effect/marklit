@@ -57,9 +57,7 @@ final case class BlockResult(
   def isSuccess: Boolean =
     if skipped then true
     else if crossExecutions.nonEmpty then
-      crossExecutions.forall(x =>
-        isExecutionSuccess(x.compileResult, x.error)
-      )
+      crossExecutions.forall(x => isExecutionSuccess(x.compileResult, x.error))
     else isExecutionSuccess(compileResult, error)
 
 /** Result of processing an entire document */
@@ -70,8 +68,8 @@ final case class DocumentResult(
   def isSuccess: Boolean = blockResults.forall(_.isSuccess)
 
   /** Returns unexpected errors (excludes expected RuntimeErrors from crash
-    * blocks). Walks per-version cross-executions for shared blocks so a
-    * failure on any single cross version is surfaced.
+    * blocks). Walks per-version cross-executions for shared blocks so a failure
+    * on any single cross version is surfaced.
     */
   def errors: Vector[(CodeBlock, MarklitError)] =
     blockResults.flatMap { br =>
@@ -88,7 +86,8 @@ final case class DocumentResult(
   def compileErrors: Vector[(CodeBlock, List[ScalaDiagnostic])] =
     blockResults.flatMap { br =>
       val crs =
-        if br.crossExecutions.nonEmpty then br.crossExecutions.flatMap(_.compileResult)
+        if br.crossExecutions.nonEmpty then
+          br.crossExecutions.flatMap(_.compileResult)
         else br.compileResult.toVector
       crs.filterNot(_.success).map(cr => (br.block, cr.diagnostics))
     }
