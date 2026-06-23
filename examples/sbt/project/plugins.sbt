@@ -1,1 +1,1 @@
-addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.1.0-SNAPSHOT")
+addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.1.0-LOCAL")

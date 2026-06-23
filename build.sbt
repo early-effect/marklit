@@ -1,6 +1,8 @@
 // Scala version used to compile marklit's own modules (core, compiler, cli,
-// the Mill plugin trait — everything except the shim and the sbt plugin).
-val marklitScalaVersion = "3.8.3"
+// the Mill plugin trait — everything except the shim). Aligned with the Scala
+// 3 version the sbt 2.0 plugin compiles against so the plugin consumes
+// marklit-compiler at an identical version.
+val marklitScalaVersion = "3.8.4"
 
 // Scala version the compiler-shim is built against. Pinned to the oldest
 // supported 3.x to keep the shim's dotc API surface compatible at runtime
@@ -58,6 +60,20 @@ usePgpKeyHex(
   sys.env.getOrElse("PGP_KEY_HEX", "2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
 )
 
+// Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
+// fileConverter must be read inside each Def.task — `.value` is a macro that
+// only expands in a task/setting scope — but the conversion + copy lives here.
+def copyJarResource(
+    converter: xsbti.FileConverter,
+    jar: xsbti.HashedVirtualFileRef,
+    targetDir: File,
+    name: String
+): Seq[File] = {
+  val targetFile = targetDir / name
+  IO.copyFile(converter.toPath(jar).toFile, targetFile)
+  Seq(targetFile)
+}
+
 // Only the sbt plugin is published; everything else is internal or bundled.
 lazy val publishSettings = Seq(
   publishMavenStyle := true,
@@ -92,9 +108,9 @@ lazy val root = project
 // both the orchestrator's classloader and each per-version compiler classloader.
 lazy val compilerApi = project
   .in(file("compiler-api"))
+  .settings(publishSettings)
   .settings(
     name := "marklit-compiler-api",
-    publish / skip := true,
     crossPaths := false,
     autoScalaLibrary := false,
     Compile / doc / sources := Seq.empty,
@@ -173,23 +189,26 @@ lazy val compilerShim2 = project
     }.taskValue
   )
 
-// Alias to rebuild CLI assembly and publish plugin locally
+// Publish the plugin and the libraries it depends on to the local Ivy repo.
+// The plugin declares marklit-compiler as a libraryDependency, so its deps
+// (compiler-api, core, compiler) must be published for that dep to resolve.
 addCommandAlias(
   "publishAll",
-  "; cli/clean; cli/assembly; plugin/clean; plugin/publishLocal"
+  "; compilerApi/publishLocal; core/publishLocal; compiler/publishLocal; plugin/clean; plugin/publishLocal"
 )
 
-// Release the plugin to Sonatype Central (requires git tag + signing key + creds).
+// Release the plugin and its published dependencies to Sonatype Central
+// (requires git tag + signing key + creds).
 addCommandAlias(
   "release",
-  "; plugin/clean; plugin/publishSigned; sonaRelease"
+  "; compilerApi/publishSigned; core/publishSigned; compiler/publishSigned; plugin/clean; plugin/publishSigned; sonaRelease"
 )
 
 lazy val core = project
   .in(file("core"))
+  .settings(publishSettings)
   .settings(
     name := "marklit-core",
-    publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % zioVersion,
       "dev.zio" %% "zio-streams" % zioVersion,
@@ -206,9 +225,9 @@ lazy val core = project
 lazy val compiler = project
   .in(file("compiler"))
   .dependsOn(core, compilerApi)
+  .settings(publishSettings)
   .settings(
     name := "marklit-compiler",
-    publish / skip := true,
     libraryDependencies ++= Seq(
       // ZIO
       "dev.zio" %% "zio" % zioVersion,
@@ -220,21 +239,28 @@ lazy val compiler = project
       "dev.zio" %% "zio-json" % "0.9.2"
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    // Both shim jars are wired into the compiler test classpath as resources
-    // so CompilerFactory tests can load them without going through the CLI.
-    Test / resourceGenerators += Def.task {
-      val shimJar = (compilerShim / Compile / packageBin).value
-      val resourceDir = (Test / resourceManaged).value
-      val targetFile = resourceDir / "marklit-compiler-shim.jar"
-      IO.copyFile(shimJar, targetFile)
-      Seq(targetFile)
+    // Both shim jars are bundled as Compile resources so they ride inside the
+    // published marklit-compiler jar. CompilerFactory.copyResource reads them
+    // via getClass.getResourceAsStream at runtime — so any consumer of
+    // marklit-compiler (the CLI fat jar, the sbt/Mill plugins in-process) finds
+    // them on its classpath without a separate published shim artifact. The
+    // compiler's own tests inherit Compile resources, so CompilerFactory tests
+    // keep working with no Test-scoped generator.
+    Compile / resourceGenerators += Def.task {
+      copyJarResource(
+        fileConverter.value,
+        (compilerShim / Compile / packageBin).value,
+        (Compile / resourceManaged).value,
+        "marklit-compiler-shim.jar"
+      )
     }.taskValue,
-    Test / resourceGenerators += Def.task {
-      val shimJar = (compilerShim2 / Compile / packageBin).value
-      val resourceDir = (Test / resourceManaged).value
-      val targetFile = resourceDir / "marklit-compiler-shim-2.jar"
-      IO.copyFile(shimJar, targetFile)
-      Seq(targetFile)
+    Compile / resourceGenerators += Def.task {
+      copyJarResource(
+        fileConverter.value,
+        (compilerShim2 / Compile / packageBin).value,
+        (Compile / resourceManaged).value,
+        "marklit-compiler-shim-2.jar"
+      )
     }.taskValue
   )
 
@@ -255,25 +281,9 @@ lazy val cli = project
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    // Bundle both compiler-shim jars as resources. CompilerFactory extracts
-    // the right one at runtime onto each per-version compiler classloader
-    // depending on the requested major (3.x → dotc shim; 2.13.x → nsc shim).
-    // Each jar is thin (shim classes only — scala-compiler is Provided), so
-    // it works against whatever exact version the user requested.
-    Compile / resourceGenerators += Def.task {
-      val shimJar = (compilerShim / Compile / packageBin).value
-      val resourceDir = (Compile / resourceManaged).value
-      val targetFile = resourceDir / "marklit-compiler-shim.jar"
-      IO.copyFile(shimJar, targetFile)
-      Seq(targetFile)
-    }.taskValue,
-    Compile / resourceGenerators += Def.task {
-      val shimJar = (compilerShim2 / Compile / packageBin).value
-      val resourceDir = (Compile / resourceManaged).value
-      val targetFile = resourceDir / "marklit-compiler-shim-2.jar"
-      IO.copyFile(shimJar, targetFile)
-      Seq(targetFile)
-    }.taskValue,
+    // The two compiler-shim jars are bundled as Compile resources of
+    // marklit-compiler now, so they arrive here transitively via
+    // dependsOn(compiler) and the assembly fat jar still contains them.
     // Assembly settings for fat jar
     assembly / assemblyJarName := "marklit-cli.jar",
     assembly / mainClass := Some("marklit.cli.MarklitCli"),
@@ -304,22 +314,32 @@ lazy val cli = project
 lazy val plugin = project
   .in(file("sbt-plugin"))
   .enablePlugins(SbtPlugin)
+  .dependsOn(compiler)
   .settings(publishSettings)
   .settings(
     name := "sbt-marklit",
-    scalaVersion := "2.12.20",
-    // Copy CLI assembly jar to plugin resources before packaging
-    Compile / resourceGenerators += Def.task {
-      val cliJar = (cli / assembly).value
-      val resourceDir = (Compile / resourceManaged).value
-      val targetFile = resourceDir / "marklit-cli.jar"
-      IO.copyFile(cliJar, targetFile)
-      Seq(targetFile)
-    }.taskValue,
-    // The Compile resourceGenerator above pulls in `cli / assembly`, so the CLI
-    // fat jar is rebuilt before any packaging task (publish, publishLocal,
-    // publishSigned). These overrides make that dependency explicit.
-    publish := (publish dependsOn (cli / assembly)).value,
-    publishLocal := (publishLocal dependsOn (cli / assembly)).value,
-    scalacOptions := Seq("-deprecation", "-feature")
+    // sbt 2.0 plugins compile against Scala 3 and publish with the _sbt2_3
+    // suffix. The plugin calls marklit-compiler in-process, so it depends on it
+    // as an ordinary library (dependsOn here for local dev; the published POM
+    // records the libraryDependency below for downstream resolution).
+    scalaVersion := marklitScalaVersion,
+    libraryDependencies +=
+      "io.github.russwyte" %% "marklit-compiler" % version.value,
+    scalacOptions := Seq("-deprecation", "-feature"),
+    // Scripted tests: publish this plugin + its libs to the local repo first,
+    // and pass the version through so each test's project/plugins.sbt can
+    // resolve it via `sys.props("plugin.version")`.
+    scriptedDependencies := scriptedDependencies
+      .dependsOn(
+        compilerApi / publishLocal,
+        core / publishLocal,
+        compiler / publishLocal,
+        publishLocal
+      )
+      .value,
+    scriptedLaunchOpts ++= Seq(
+      "-Xmx1024m",
+      s"-Dplugin.version=${version.value}"
+    ),
+    scriptedBufferLog := false
   )

@@ -1,6 +1,6 @@
 # marklit
 
-[![Maven Repository](https://img.shields.io/maven-central/v/io.github.russwyte/sbt-marklit_2.12_1.0?logo=apachemaven)](https://mvnrepository.com/artifact/io.github.russwyte/sbt-marklit)
+[![Maven Repository](https://img.shields.io/maven-central/v/io.github.russwyte/sbt-marklit_sbt2_3?logo=apachemaven)](https://mvnrepository.com/artifact/io.github.russwyte/sbt-marklit)
 
 **Typechecked Scala documentation that actually runs your code — across multiple Scala versions, in the same file.**
 
@@ -10,13 +10,13 @@ If your docs claim something works, marklit makes the build break when it doesn'
 
 ## Installation
 
-marklit ships as an sbt plugin. Add it to `project/plugins.sbt`:
+marklit ships as an sbt plugin (sbt 2.0+, published for Scala 3). Add it to `project/plugins.sbt`:
 
 ```scala
-addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.0.1")
+addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.1.0")
 ```
 
-The plugin is an `AutoPlugin` triggered on every JVM project — no `enablePlugins` needed. See [Build tool integration](#build-tool-integration) for wiring up a docs project.
+The plugin is an `AutoPlugin` triggered on every JVM project — no `enablePlugins` needed. It calls marklit's compiler in-process (no subprocess), so the only thing it adds to your build is the plugin dependency. See [Build tool integration](#build-tool-integration) for wiring up a docs project.
 
 ## What sets marklit apart
 
@@ -37,7 +37,7 @@ marklit lives in [mdoc](https://scalameta.org/mdoc/)'s neighborhood. Many ideas 
 | **Built-in ZIO runtime** (`zio-app` modifier) | ✗ | **✓** |
 | Multiple modifiers per block (`silent,id=setup`) | partial | **✓** |
 | Scoped-by-default — blocks isolated unless you opt in | ✗ | **✓** |
-| **Persistent on-disk block cache + warm-classloader daemon** | ✗ | **✓** |
+| **Persistent on-disk block cache + warm in-process compilers** | ✗ | **✓** |
 
 The multi-version story is the one that pays for the project. You can write a migration guide that shows the *same code* compiled on 2.13 and 3.x, side by side, with both outputs verified by real compilers.
 
@@ -99,7 +99,7 @@ println(scala.util.Properties.versionNumberString)  // "2.13.16" actually
 ```
 ````
 
-The `marklit-cli` jar is built once and bundles only thin shims against the dotc (3.x) and nsc (2.13) compiler APIs. Every per-version classloader gets a fresh copy of the *user-requested* compiler and its matching standard library — so user code is always compiled and run by the version they asked for, never by the bundled shim's version.
+marklit ships only thin shims against the dotc (3.x) and nsc (2.13) compiler APIs (bundled as resources inside `marklit-compiler`). Every per-version classloader gets a fresh copy of the *user-requested* compiler and its matching standard library — so user code is always compiled and run by the version they asked for, never by the shim's compile-time version.
 
 A worked example with five different versions in one file lives in [examples/base/src/main/markdown/scopes-and-versions.md](examples/base/src/main/markdown/scopes-and-versions.md).
 
@@ -123,14 +123,14 @@ Both blocks reference `example.Greeter`. Both compile. Both produce real output 
 
 ## Performance
 
-Compiling Scala (especially across multiple versions) is expensive. marklit has two layers of caching that make warm runs roughly **3-4× faster** than cold runs on the included examples:
+Compiling Scala (especially across multiple versions) is expensive. marklit has two layers of caching that make warm runs dramatically faster than cold runs on the included examples:
 
-- **Long-lived daemon JVM.** The build plugins talk to a marklit subprocess over JSON-RPC instead of spawning a fresh JVM per task. Per-version compiler classloaders stay warm across `marklitGenerate` invocations within a build session. Cold-start of a new Scala version is ~1-2s; subsequent compiles against the same version reuse that loader.
+- **Warm in-process compilers.** The build plugins call marklit's `CompilerFactory` in-process and hold it for the whole build session — sbt keeps one factory for the session; Mill keeps it in a long-lived `Task.Worker`. Per-version compiler classloaders are built once and reused across `marklitGenerate` / `marklitCheck` invocations. Cold-start of a new Scala version is ~1-2s; subsequent compiles against the same version reuse that warm loader. (This replaced the earlier out-of-process daemon — same warmth, no subprocess.)
 - **Persistent SHA-256 block cache.** Every block's compiled `.class` files are stored on disk keyed by a hash of `(code, prior code, scalaVersion, classpath, scalac options, …)`. A cache hit skips both compile and re-emit — execution loads the cached class files directly. Cache lives at `target/marklit-cache/` (sbt) or `out/<module>/marklitCacheDir.dest/marklit-cache/` (Mill); both plugins clean it as part of `<proj>/marklitClean`.
 
-Cold-vs-warm on [examples/sbt/](examples/sbt/) (4 markdown files, 46 blocks across 4 Scala versions): **~20s → ~6s**. Mill: **~18s → ~4s**. Same machine, no other changes.
+The warm-compiler effect is large within a session: on [examples/sbt/](examples/sbt/), a 23-block multi-version file drops from ~8s on the cold first run to tens of milliseconds on a warm re-check.
 
-Both layers are on by default. To disable the daemon: `marklitDaemon := false` (sbt) / `def marklitDaemonEnabled = false` (Mill). To disable the disk cache: `marklitCacheDirectory := None` (sbt) / `def marklitCacheDir = None` (Mill).
+The warm factory is always on (it's just an in-process object). To disable the disk cache: `marklitCacheDirectory := None` (sbt) / `def marklitCacheDir = None` (Mill).
 
 ## Modifiers
 
@@ -282,7 +282,7 @@ Default remains off: marklit's per-block isolation is the better default for ref
 
 ```scala
 // project/plugins.sbt
-addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.0.1")
+addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.1.0")
 ```
 
 ```scala
@@ -312,11 +312,11 @@ A worked multi-version example lives in [examples/sbt/](examples/sbt/).
 
 ### Mill
 
-> **Not published yet.** The Mill plugin is built in this repo but hasn't been released to Maven Central — the snippet below is a preview of the intended usage. A release is coming soon; until then, use the sbt plugin or the standalone CLI.
+> **Not published yet.** The Mill plugin is built and tested in this repo but hasn't been released to Maven Central — the snippet below is a preview of the intended usage. Until it's published you can build it locally: publish marklit's libraries and the plugin to your local repo (see [Building from source](#building-from-source)), then depend on the local version. A release is coming soon; until then, use the sbt plugin or the standalone CLI.
 
 ```scala
 //| mvnDeps:
-//| - io.github.russwyte::mill-marklit:0.1.0-SNAPSHOT
+//| - io.github.russwyte::mill-marklit:0.1.0
 
 import marklit.mill.MarklitModule
 
@@ -339,7 +339,7 @@ A worked example lives in [examples/mill/](examples/mill/).
 
 ### CLI
 
-The CLI is bundled inside both build plugins, but you can also run it standalone:
+The build plugins call marklit in-process, but the same engine is also available as a standalone CLI (built from this repo — see [Building from source](#building-from-source)):
 
 ```sh
 marklit docs/ --out target/docs/
@@ -371,7 +371,7 @@ You can also declare dependencies inline in a Markdown file using [scala-cli](ht
 //> using options -feature -deprecation
 ```
 
-Precedence (highest to lowest): per-block `scala=<specific>` → in-source `//> using scala` → CLI `--scala-version` → bundled shim's compile-time version.
+Precedence (highest to lowest): per-block `scala=<specific>` → in-source `//> using scala` → CLI `--scala-version` → the shim's compile-time version.
 
 ## How it actually works
 
@@ -389,14 +389,14 @@ The per-version classloader pattern is the same one Bloop and Metals use to host
 
 | Module | What it is |
 | --- | --- |
-| [core/](core/) | Parser, scope manager, document processor, renderer. Pure types, no compiler dependency. Published. |
-| [compiler-api/](compiler-api/) | Java-only interfaces between marklit and the per-version compiler shims. |
-| [compiler-shim/](compiler-shim/) | Thin shim against `dotty.tools.dotc.*`. Pinned to the oldest 3.x we support; the API surface is stable across 3.x. |
-| [compiler-shim-2/](compiler-shim-2/) | Thin shim against `scala.tools.nsc.*` for 2.13. |
-| [compiler/](compiler/) | Orchestration: Coursier-based `CompilerFactory`, classloader management, ZIO layers. Does not directly depend on `scala3-compiler` or `scala-compiler`. |
-| [cli/](cli/) | `zio-cli` front-end. Distributed as a fat jar bundled inside the build plugins. |
-| [sbt-plugin/](sbt-plugin/) | `sbt-marklit` AutoPlugin. Published. |
-| [mill-plugin/](mill-plugin/) | `mill-marklit` module trait. Built with Mill. Published. |
+| [core/](core/) | Parser, scope manager, document processor, renderer. Pure types, no compiler dependency. Published (`marklit-core`). |
+| [compiler-api/](compiler-api/) | Java-only interfaces between marklit and the per-version compiler shims. Published (`marklit-compiler-api`). |
+| [compiler-shim/](compiler-shim/) | Thin shim against `dotty.tools.dotc.*`. Pinned to the oldest 3.x we support; the API surface is stable across 3.x. Bundled as a resource inside `marklit-compiler` (not published separately). |
+| [compiler-shim-2/](compiler-shim-2/) | Thin shim against `scala.tools.nsc.*` for 2.13. Bundled inside `marklit-compiler`. |
+| [compiler/](compiler/) | Orchestration: the `MarklitRun` facade, Coursier-based `CompilerFactory`, classloader management, ZIO layers. Does not directly depend on `scala3-compiler` or `scala-compiler`. Published (`marklit-compiler`); the build plugins call it in-process. |
+| [cli/](cli/) | `zio-cli` front-end — a standalone fat-jar tool built from this repo. Not published; the build plugins no longer embed it. |
+| [sbt-plugin/](sbt-plugin/) | `sbt-marklit` AutoPlugin (sbt 2.0, Scala 3). Published as `sbt-marklit_sbt2_3`; depends on `marklit-compiler` and runs it in-process. |
+| [mill-plugin/](mill-plugin/) | `mill-marklit` module trait. Built and tested with Mill; calls `marklit-compiler` in-process. Not yet published. |
 
 ## Limitations
 
@@ -409,10 +409,13 @@ The per-version classloader pattern is the same one Bloop and Metals use to host
 ## Building from source
 
 ```sh
-sbt publishAll                 # build CLI fat jar + publish sbt plugin locally
-(cd mill-plugin && mill plugin.publishLocal) # publish mill plugin locally
+sbt publishAll                 # publish marklit-compiler (+ api, core) and the sbt plugin locally
+(cd mill-plugin && mill plugin.publishLocal) # build + publish the mill plugin locally
 sbt test                       # full test suite
+sbt "plugin/scripted"          # sbt-plugin integration tests (real sbt builds)
 ```
+
+`publishAll` publishes the libraries the sbt plugin depends on (`marklit-compiler-api`, `marklit-core`, `marklit-compiler`) plus `sbt-marklit` to your local Ivy repo, so a downstream project (or the [examples/](examples/)) can resolve them. The standalone CLI fat jar is built separately with `sbt cli/assembly`.
 
 ## Inspiration
 

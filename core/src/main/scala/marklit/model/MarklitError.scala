@@ -21,6 +21,7 @@ enum MarklitError:
   case CompileError(diagnostics: List[ScalaDiagnostic])
   case RuntimeError(exception: Throwable, output: String)
   case ValidationError(location: Location, message: String)
+  case ResolutionError(message: String)
 
   def pretty: String = this match
     case ParseError(loc, msg)     => s"Parse error at ${loc.pretty}: $msg"
@@ -28,3 +29,4 @@ enum MarklitError:
     case RuntimeError(ex, output) =>
       s"Runtime error: ${ex.getMessage}\nOutput: $output"
     case ValidationError(loc, msg) => s"Validation error at ${loc.pretty}: $msg"
+    case ResolutionError(msg)      => s"Dependency resolution failed: $msg"

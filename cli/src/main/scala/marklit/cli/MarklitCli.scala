@@ -1,14 +1,11 @@
 package marklit.cli
 
-import marklit.{Marklit, MarklitResult}
-import marklit.compiler.CompilerFactory
-import marklit.renderer.{MarkdownRenderer, RenderConfig}
-import marklit.resolver.DependencyResolver
+import marklit.{MarklitRun, MarklitRunConfig}
 import zio.*
 import zio.cli.*
 import zio.cli.HelpDoc.Span.text
 
-import java.nio.file.{Files, Path}
+import java.nio.file.Path
 
 /** CLI options */
 final case class MarklitOptions(
@@ -244,215 +241,58 @@ object MarklitCli extends ZIOCliDefault:
       effect.as(options)
     }
 
+  /** Split a `--classpath`-style flag value into entries (colon/semicolon
+    * separated), or empty when absent.
+    */
+  private def splitClasspath(cp: Option[String]): Vector[String] =
+    cp.map(_.split("[;:]").toVector).getOrElse(Vector.empty)
+
   def runMarklit(options: MarklitOptions): ZIO[Any, Throwable, Unit] =
+    val config = MarklitRunConfig(
+      inputFiles = options.inputFiles.toVector,
+      outputDir = options.outputDir,
+      scalaVersion = options.scalaVersion,
+      classpath = splitClasspath(options.classpath),
+      classpath2 = splitClasspath(options.classpath2),
+      classpath3 = splitClasspath(options.classpath3),
+      deps = options.dependencies.toVector,
+      repos = options.repositories.toVector,
+      cacheDir = options.cacheDir,
+      pageScope = options.pageScope,
+      check = options.check,
+      showVersion = options.showVersionInOutput,
+      showWarnings = options.showWarningsInOutput,
+      verbose = options.verbose
+    )
+
     for
-      _ <- ZIO.when(options.verbose)(
-        Console.printLine(s"Processing ${options.inputFiles.size} file(s)...")
-      )
+      result <- MarklitRun
+        .run(config)
+        .mapError(e => new RuntimeException(e.pretty))
 
-      // Validate input files exist
-      _ <- ZIO.foreachDiscard(options.inputFiles) { path =>
-        ZIO
-          .fail(new RuntimeException(s"File not found: $path"))
-          .unless(Files.exists(path))
-      }
+      // Surface the facade's informational notices (already verbose-gated).
+      _ <- ZIO.foreachDiscard(result.notices)(Console.printLine(_))
 
-      // Effective default Scala version, before per-file using directives
-      // are applied. Precedence: --scala-version > shim's compile-time version.
-      shimDefault = CompilerFactory.defaultScalaVersion
-      cliDefault = options.scalaVersion.getOrElse(shimDefault)
-
-      _ <- ZIO.when(options.verbose)(
-        Console.printLine(s"Default Scala version: $cliDefault")
-      )
-
-      // Read each input file and parse its using directives. Per-file parsing
-      // (rather than one merged set) lets us emit one notification per file
-      // when a `//> using scala` directive overrides the CLI default.
-      perFile <- ZIO.foreach(options.inputFiles) { path =>
+      // Per-file summary + verbose error/diagnostic detail.
+      _ <- ZIO.foreachDiscard(result.files) { file =>
         for
-          content <- ZIO.attempt(Files.readString(path))
-          directives = DependencyResolver.parseUsingDirectives(content)
-        yield (path, directives)
-      }
-
-      // Aggregate dependencies across files (kept as a single resolution
-      // bundle to avoid resolving the same dep N times).
-      allDeps = options.dependencies.toVector ++ perFile.toVector
-        .flatMap(_._2.dependencies)
-        .distinct
-      allRepos = options.repositories.toVector ++ perFile.toVector
-        .flatMap(_._2.repositories)
-        .distinct
-      allScalacOptions = perFile.toVector.flatMap(_._2.scalacOptions).distinct
-
-      _ <- ZIO.when(options.verbose && allDeps.nonEmpty)(
-        Console.printLine(s"Resolving dependencies: ${allDeps.mkString(", ")}")
-      )
-
-      // Resolve dependencies once, against the CLI default version. Per-file
-      // overrides only affect compilation, not Coursier resolution of user deps.
-      resolvedJars <- {
-        if allDeps.nonEmpty then
-          DependencyResolver
-            .resolve(allDeps, cliDefault, allRepos)
-            .mapError(e =>
-              new RuntimeException(
-                s"Dependency resolution failed: ${e.getMessage}"
-              )
-            )
-        else ZIO.succeed(Vector.empty[String])
-      }
-
-      _ <- ZIO.when(options.verbose && resolvedJars.nonEmpty)(
-        Console.printLine(s"Resolved ${resolvedJars.size} JAR(s)")
-      )
-
-      // Filter scala-library/scala3-library out of resolved deps — the
-      // per-version classloader brings matching copies transitively, and a
-      // user-resolved copy at a different version causes duplicate-package
-      // errors.
-      cliClasspath = options.classpath
-        .map(_.split("[;:]").toVector)
-        .getOrElse(Vector.empty)
-      filteredResolved = resolvedJars.filterNot { jar =>
-        val fileName = java.nio.file.Paths.get(jar).getFileName.toString
-        fileName.startsWith("scala-library") || fileName.startsWith(
-          "scala3-library"
-        )
-      }
-      fullClasspath = cliClasspath ++ filteredResolved
-
-      // Per-major classpaths from the build plugin's cross-publish: each
-      // entry's classpath is built against that major and is the right one
-      // to use for `marklit:scala=<that-major>.x.y` blocks. The default
-      // --classpath above remains the path used for blocks compiled at the
-      // default major. Resolved Coursier deps are version-agnostic enough to
-      // share across majors here; the per-version classloader's transitive
-      // scala-library/scala3-library wins by virtue of the filter above.
-      majorClasspaths = Map(
-        "2" -> options.classpath2,
-        "3" -> options.classpath3
-      ).flatMap { case (m, cpOpt) =>
-        cpOpt
-          .map(_.split("[;:]").toVector ++ filteredResolved)
-          .map(m -> _)
-      }
-
-      // Print override notifications: one info line per file whose using
-      // directive opts into a Scala version different from the CLI default.
-      _ <- ZIO.foreachDiscard(perFile) { case (path, directives) =>
-        directives.scalaVersion match
-          case Some(v) if v != cliDefault =>
-            Console.printLine(
-              s"$path: //> using scala $v overrides default $cliDefault"
-            )
-          case _ => ZIO.unit
-      }
-
-      // Process each file with its own effective default version (file
-      // directive wins over CLI default). Per-block specific versions are
-      // handled inside the processor via the same factory instance.
-      results <- ZIO
-        .foreach(perFile) { case (path, directives) =>
-          val fileDefault = directives.scalaVersion.getOrElse(cliDefault)
-          // `allScalacOptions` already includes this file's directives via the
-          // flatMap above; the parsed value is itself a ListSet, so duplicates
-          // within a file collapsed at parse time. No further dedup needed.
-          val fileScalacOptions = allScalacOptions
-          val absPath = path.toAbsolutePath
-          Marklit
-            .processFile(absPath)
-            .provideSome[CompilerFactory](
-              Marklit.liveWithFactory(
-                fileDefault,
-                fullClasspath,
-                fileScalacOptions,
-                majorClasspaths,
-                options.cacheDir,
-                if options.pageScope then marklit.model.ScopeMode.Page
-                else marklit.model.ScopeMode.Isolated
-              )
-            )
-            .mapError(e => new RuntimeException(e.pretty))
-        }
-        .provide(CompilerFactory.layer)
-
-      // Report results
-      _ <- ZIO.foreachDiscard(results) { result =>
-        for
-          _ <- Console.printLine(result.summary)
-          _ <- ZIO.when(options.verbose && result.errors.nonEmpty)(
-            ZIO.foreachDiscard(result.errors) { case (block, error) =>
-              Console.printLine(
-                s"  ${block.location.pretty}: ${error.pretty}"
-              )
+          _ <- Console.printLine(file.summary)
+          _ <- ZIO.when(options.verbose && file.blockErrors.nonEmpty)(
+            ZIO.foreachDiscard(file.blockErrors) { case (loc, msg) =>
+              Console.printLine(s"  $loc: $msg")
             }
           )
-          failedBlocks = result.processingResult.blockResults.filter(br =>
-            !br.isSuccess && br.error.isEmpty && br.compileResult.exists(
-              !_.success
-            )
-          )
-          _ <- ZIO.when(options.verbose && failedBlocks.nonEmpty)(
-            ZIO.foreachDiscard(failedBlocks) { br =>
-              val diagnostics =
-                br.compileResult.map(_.diagnostics).getOrElse(Nil)
-              val diagStr = diagnostics
-                .map(d => s"${d.severity}: ${d.message}")
-                .mkString("; ")
-              Console.printLine(
-                s"  ${br.block.location.pretty}: Compile failed - $diagStr"
-              )
+          _ <- ZIO.when(options.verbose && file.failedCompiles.nonEmpty)(
+            ZIO.foreachDiscard(file.failedCompiles) { case (loc, msg) =>
+              Console.printLine(s"  $loc: $msg")
             }
           )
         yield ()
       }
 
-      // Check for failures
-      failures = results.filterNot(_.isSuccess)
+      // Nonzero exit when any file failed (compile failures are data, not
+      // exceptions, inside the facade — we translate them to a CLI failure here).
       _ <- ZIO
-        .fail(new RuntimeException(s"${failures.size} file(s) failed"))
-        .unless(failures.isEmpty)
-
-      // Write output if not in check mode
-      _ <- ZIO.when(!options.check && options.outputDir.isDefined)(
-        writeOutputs(
-          results.toVector,
-          options.outputDir.get,
-          options.verbose,
-          options.showVersionInOutput,
-          options.showWarningsInOutput
-        )
-      )
-    yield ()
-
-  /** Write final rendered markdown output */
-  private def writeOutputs(
-      results: Vector[MarklitResult],
-      outputDir: Path,
-      verbose: Boolean,
-      showVersion: Boolean,
-      showWarnings: Boolean
-  ): ZIO[Any, Throwable, Unit] =
-    for
-      _ <- ZIO.attempt(Files.createDirectories(outputDir))
-      _ <- ZIO.foreachDiscard(results) { result =>
-        val outputPath = outputDir.resolve(result.sourceFile.getFileName)
-        val config = RenderConfig(
-          showScalaVersion = showVersion,
-          showCompileWarnings = showWarnings
-        )
-        for
-          rendered <- ZIO.succeed(
-            MarkdownRenderer.render(
-              result.document,
-              result.processingResult,
-              config
-            )
-          )
-          _ <- ZIO.attempt(Files.writeString(outputPath, rendered))
-          _ <- ZIO.when(verbose)(Console.printLine(s"  Wrote: $outputPath"))
-        yield ()
-      }
+        .fail(new RuntimeException(s"${result.failedCount} file(s) failed"))
+        .unless(result.success)
     yield ()
