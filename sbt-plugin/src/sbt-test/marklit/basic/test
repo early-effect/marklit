@@ -1,0 +1,11 @@
+# Check mode passes for the good block.
+> docs/marklitCompile
+
+# Generate renders output and writes it to the target dir.
+> docs/marklitGenerate
+$ exists target/docs/good.md
+> checkOutput
+
+# Adding a block that does not compile makes marklitCompile fail.
+$ copy-file changes/bad.md markdown/bad.md
+-> docs/marklitCompile

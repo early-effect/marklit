@@ -2,12 +2,20 @@
 
 A Mill plugin for [marklit](https://github.com/russwyte/marklit) - typechecked Scala documentation.
 
+> **Not yet published.** Build and publish it locally first (see
+> [Building from Source](#building-from-source)), then depend on the local
+> version. marklit's compiler runs **in-process** — the plugin depends on
+> `marklit-compiler` and calls it directly; there is no CLI subprocess or
+> daemon.
+
 ## Installation
 
-Add the plugin to your `build.mill`:
+Declare the plugin in your `build.mill` header:
 
 ```scala
-import $ivy.`io.github.russwyte::mill-marklit:0.1.0`
+//| mvnDeps:
+//| - io.github.russwyte::mill-marklit:0.1.0
+
 import marklit.mill.MarklitModule
 ```
 
@@ -16,14 +24,18 @@ import marklit.mill.MarklitModule
 Mix `MarklitModule` into your module:
 
 ```scala
-import $ivy.`io.github.russwyte::mill-marklit:0.1.0`
+//| mvnDeps:
+//| - io.github.russwyte::mill-marklit:0.1.0
+
+import mill._
+import mill.scalalib._
 import marklit.mill.MarklitModule
 
 object docs extends ScalaModule with MarklitModule {
   def scalaVersion = "3.8.2"
-  
-  // Optional: customize source directory (defaults to millSourcePath / "markdown")
-  // override def marklitSourceDir = Task.Source(millSourcePath / "docs")
+
+  // Optional: customize source directory (defaults to moduleDir / "markdown")
+  // override def marklitSourceDir = Task.Source(moduleDir / "docs")
 }
 ```
 
@@ -41,10 +53,15 @@ mill docs.marklitCheck
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `marklitSourceDir` | `T[PathRef]` | `millSourcePath / "markdown"` | Directory containing markdown source files |
+| `marklitSourceDir` | `T[PathRef]` | `moduleDir / "markdown"` | Directory containing markdown source files |
 | `marklitShowVersion` | `T[Boolean]` | `true` | Show Scala version in output blocks |
+| `marklitShowWarnings` | `T[Boolean]` | `true` | Render compile warnings in output blocks |
 | `marklitVerbose` | `T[Boolean]` | `false` | Enable verbose output |
-| `marklitClasspath` | `T[Seq[PathRef]]` | `runClasspath()` | Classpath for code execution |
+| `marklitPageScope` | `T[Boolean]` | `false` | Share scope across all anonymous blocks per file (mdoc-style) |
+| `marklitClasspath` | `T[Seq[PathRef]]` | `compileClasspath()` (stdlib filtered) | Classpath made available inside code blocks |
+| `marklitCrossModuleDeps` | `Seq[CrossModuleBase]` | `Seq.empty` | Cross-built sibling modules to expose to cross-version blocks |
+| `marklitMajorClasspaths` | `T[Map[String, Seq[PathRef]]]` | derived from `marklitCrossModuleDeps` | Per-major (`"2"`/`"3"`) classpaths for cross-version blocks |
+| `marklitCacheDir` | `T[Option[PathRef]]` | a dest under `out/` | Persistent on-disk block compile cache (`None` disables) |
 
 ## Example with Project Code
 
@@ -66,11 +83,12 @@ object docs extends ScalaModule with MarklitModule {
 
 ## Building from Source
 
-1. Build the CLI jar:
+1. Publish marklit's libraries locally (the plugin depends on `marklit-compiler`):
    ```bash
    cd /path/to/marklit
-   sbt 'project cli' assembly
+   sbt '; set every version := "0.1.0-LOCAL" ; compilerApi/publishLocal ; core/publishLocal ; compiler/publishLocal'
    ```
+   (Match the `marklitVersion` in `mill-plugin/build.mill`.)
 
 2. Build and publish the Mill plugin locally:
    ```bash

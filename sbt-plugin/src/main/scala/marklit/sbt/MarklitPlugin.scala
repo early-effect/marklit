@@ -1,7 +1,8 @@
 package marklit.sbt
 
-import sbt._
-import sbt.Keys._
+import marklit.MarklitRunConfig
+import sbt.*
+import sbt.Keys.*
 
 object MarklitPlugin extends AutoPlugin {
 
@@ -20,18 +21,6 @@ object MarklitPlugin extends AutoPlugin {
       "Share scope across all anonymous blocks in each file (default: false)"
     )
 
-    // Daemon settings — when enabled, marklit tasks talk to a long-lived
-    // marklit JVM that survives across task invocations within the sbt
-    // session. This keeps the per-Scala-version compiler classloaders warm
-    // (cold-start ≈ 1-2s per fresh major), so the second `marklitGenerate`
-    // run is substantially faster than the first.
-    val marklitDaemon = settingKey[Boolean](
-      "Enable the long-lived marklit daemon for warm-classloader reuse across tasks"
-    )
-    val marklitDaemonIdleTimeout = settingKey[Long](
-      "Idle timeout in seconds before an inactive daemon shuts itself down (default: 900 = 15 minutes)"
-    )
-
     // Persistent block-compile cache. SHA-256-keyed entries live under this
     // directory and survive across sbt sessions. Default sits inside the
     // project's `target/` so `sbt clean` removes it the same as other build
@@ -44,9 +33,9 @@ object MarklitPlugin extends AutoPlugin {
     // Map from Scala major ("2", "3") to a per-major classpath. When a
     // markdown block opts into a cross-version compile (e.g.
     // `marklit:scala=2.13.16` from a project whose own scalaVersion is
-    // 3.x), the matching entry is forwarded as `--classpath-<major>`. This
-    // is the place to wire `(otherModule / Compile / fullClasspath)` from
-    // a sibling module that's cross-built for the other major.
+    // 3.x), the matching entry is forwarded to the cross-version compiler.
+    // This is the place to wire `(otherModule / Compile / fullClasspath)`
+    // from a sibling module that's cross-built for the other major.
     val marklitMajorClasspaths = taskKey[Map[String, Seq[File]]](
       "Per-major classpath overrides for cross-version blocks (key = Scala major like \"2\" or \"3\")"
     )
@@ -58,63 +47,68 @@ object MarklitPlugin extends AutoPlugin {
     val marklitClean = taskKey[Unit]("Clean marklit output directory")
   }
 
-  import autoImport._
+  import autoImport.*
 
   override def requires: Plugins = plugins.JvmPlugin
   override def trigger: PluginTrigger = allRequirements
 
-  // Extract the embedded CLI jar on first use
-  private lazy val extractedJar: File = {
-    val tempDir = IO.createTemporaryDirectory
-    val jarFile = tempDir / "marklit-cli.jar"
-
-    val resourceStream = getClass.getResourceAsStream("/marklit-cli.jar")
-    if (resourceStream == null) {
-      sys.error(
-        "marklit-cli.jar not found in plugin resources. Plugin may not be packaged correctly."
-      )
-    }
-
-    try {
-      IO.transfer(resourceStream, jarFile)
-    } finally {
-      resourceStream.close()
-    }
-
-    // Mark for cleanup on JVM exit
-    tempDir.deleteOnExit()
-    jarFile.deleteOnExit()
-
-    jarFile
-  }
-
-  /** Filter scala-library / scala3-library jars (and the bundled marklit-cli)
-    * out of a forwarded classpath. The CLI resolves the per-version stdlib via
-    * Coursier; leaving the host project's stdlib on the classpath leaks
-    * 3.8.x-bin TASTy into 3.7.x compile contexts.
+  /** Filter scala-library / scala3-library jars out of a forwarded classpath.
+    * marklit resolves the per-version stdlib via Coursier; leaving the host
+    * project's stdlib on the classpath leaks its bin-TASTy into a different
+    * compile context.
     */
   private def filterForwardedClasspath(cp: Seq[File]): Seq[File] =
     cp.filterNot { f =>
       val name = f.getName
-      name.contains("marklit-cli") ||
       name.startsWith("scala-library") ||
       name.startsWith("scala3-library")
     }
 
-  /** Resolve a dep project's per-cross-version classes directory. sbt's
-    * cross-build target naming is inconsistent: 2.13 → "scala-2.13" (binary
-    * version), 3.x → "scala-3.x.y" (full version). Returns the candidate dirs
-    * in order — caller picks an existing one or, when checking readiness,
-    * accepts the binary form as the canonical location.
+  /** Resolve the real on-disk paths of a Classpath. sbt 2.0 classpaths are
+    * `Seq[Attributed[xsbti.HashedVirtualFileRef]]`; the converter turns each
+    * virtual ref into a `java.nio.file.Path` (then a `File`).
+    */
+  private def classpathFiles(
+      cp: Def.Classpath,
+      converter: xsbti.FileConverter
+  ): Seq[File] =
+    cp.map(af => converter.toPath(af.data).toFile)
+
+  /** Resolve a dep project's per-cross-version classes directory.
+    *
+    * In sbt 2.0 the build output layout is
+    * `<base>/out/jvm/scala-<fullVersion>/<module>/classes`, and the `target`
+    * key for the dep is already scoped to the *current* session's Scala version
+    * (e.g. `.../out/jvm/scala-3.8.2/marklit-example-core`). To reach a
+    * different cross version we substitute the `scala-<version>` path segment.
+    *
+    * For robustness we also emit the sbt 1.x candidates (`target/scala-<binV>`
+    * and `target/scala-<fullVersion>`); the caller filters by existence and
+    * picks the first that's present.
     */
   private def crossClassesDir(target: File, version: String): Seq[File] = {
     val major = version.takeWhile(_ != '.')
     val binV =
       if (major == "2") version.split('.').take(2).mkString(".")
       else version
-    val binDir = target / s"scala-$binV" / "classes"
-    val fullDir = target / s"scala-$version" / "classes"
-    Seq(binDir, fullDir).distinct
+
+    // sbt 2.0 layout: target == .../out/jvm/scala-<curVer>/<module>.
+    // Replace the scala-<curVer> grandparent segment with scala-<version>.
+    val parent = Option(target.getParentFile)
+    val sbt2Candidate: Seq[File] =
+      parent match {
+        case Some(p) if p.getName.startsWith("scala-") =>
+          Seq(p.getParentFile / s"scala-$version" / target.getName / "classes")
+        case _ => Seq.empty
+      }
+
+    // sbt 1.x layout: target/scala-<binV-or-full>/classes.
+    val sbt1Candidates = Seq(
+      target / s"scala-$binV" / "classes",
+      target / s"scala-$version" / "classes"
+    )
+
+    (sbt2Candidate ++ sbt1Candidates).distinct
   }
 
   /** Auto-discover per-major classpaths from this project's dependsOn graph.
@@ -128,9 +122,6 @@ object MarklitPlugin extends AutoPlugin {
     * invocation). When invoking the task directly via project scoping
     * (`docs/marklitGenerate`), the user is responsible for having compiled the
     * cross-builds first.
-    *
-    * The discovered map is then merged with any user override; user keys win so
-    * explicit `marklitMajorClasspaths += ...` still works.
     */
   private def autoMajorClasspaths
       : Def.Initialize[Task[Map[String, Seq[File]]]] =
@@ -140,7 +131,7 @@ object MarklitPlugin extends AutoPlugin {
         .classpath(thisProjectRef.value)
         .map(_.project)
 
-      val perDepFilter = ScopeFilter(inProjects(deps: _*))
+      val perDepFilter = ScopeFilter(inProjects(deps*))
       Def.task {
         val depCrosses = (Keys.crossScalaVersions ?? Seq.empty)
           .all(perDepFilter)
@@ -176,15 +167,6 @@ object MarklitPlugin extends AutoPlugin {
     *      to the user's original `scalaVersion` per project before the docs
     *      task runs).
     *   2. `<docsProj>/<taskName>` per marklit-enabled project.
-    *
-    * Why `+` (cross-prefix) and not `++ <v>!` (set-version)? The `++` form
-    * mutates the session globally and there's no public API to reliably
-    * un-mutate without going through `Cross.SwitchCommand`. The `+` form uses
-    * sbt's internal session-stash machinery to compile *all* of the project's
-    * `crossScalaVersions` and restore the original state. That's stronger than
-    * we need (it cross-builds even the major already in the docs scope), but
-    * the resulting compile is incremental, so the cost of re-touching the same
-    * major is near-zero on a warm build.
     *
     * Each dep project is cross-compiled at most once (de-duplicated across docs
     * projects).
@@ -238,17 +220,7 @@ object MarklitPlugin extends AutoPlugin {
     * Why a command (and not a task)? sbt's `scalaVersion` is a setting, not a
     * parameter to `compile`. The `+` cross-prefix is a *command-level* loop
     * that re-applies the build with a different `scalaVersion` per cross
-    * version, then runs the suffix command. There is no public API to do this
-    * from a `Def.task` body — it must be done by prepending commands to
-    * `state.remainingCommands`. This is the same machinery `sbt.Cross` uses
-    * internally for the `+` command.
-    *
-    * Users who run the project-scoped task directly (`docs/marklitGenerate`)
-    * still need to ensure cross-builds are present (e.g., via prior
-    * `+depModule/compile`). The build-level commands `marklitGenerate` /
-    * `marklitCompile` (defined here, no project selector) handle that
-    * automatically by detecting which projects have markdown sources, which
-    * deps they have, and what cross versions those deps declare.
+    * version, then runs the suffix command.
     */
   private val marklitGenerateCommand: Command =
     Command.command("marklitGenerate") { state =>
@@ -264,21 +236,33 @@ object MarklitPlugin extends AutoPlugin {
       else cmds ::: state
     }
 
-  override lazy val buildSettings: Seq[Setting[_]] = Seq(
-    // Tear daemons down when the build session ends. `onUnload` runs on
-    // sbt exit and on `reload`. We chain after any existing onUnload so we
-    // don't clobber other plugins' cleanup.
+  /** Build a per-major classpath map of real paths for the run config. */
+  private def majorClasspathStrings(
+      majorCps: Map[String, Seq[File]]
+  ): (Vector[String], Vector[String]) = {
+    def entries(major: String): Vector[String] =
+      filterForwardedClasspath(majorCps.getOrElse(major, Seq.empty))
+        .map(_.getAbsolutePath)
+        .toVector
+    (entries("2"), entries("3"))
+  }
+
+  override lazy val buildSettings: Seq[Setting[?]] = Seq(
+    // Release the in-process CompilerFactory (temp shim jars, cached
+    // classloaders) when the build session ends. `onUnload` runs on sbt exit
+    // and on `reload`. We chain after any existing onUnload so we don't clobber
+    // other plugins' cleanup.
     Global / onUnload := { (s: State) =>
       val previous = (Global / onUnload).value
       val next = previous(s)
-      try MarklitDaemonRegistry.shutdownAll()
+      try MarklitSession.shutdown()
       catch { case _: Throwable => () }
       next
     },
     Global / commands ++= Seq(marklitGenerateCommand, marklitCompileCommand)
   )
 
-  override lazy val projectSettings: Seq[Setting[_]] = Seq(
+  override lazy val projectSettings: Seq[Setting[?]] = Seq(
     // Default settings
     marklitSourceDirectory := (Compile / sourceDirectory).value / "markdown",
     marklitTargetDirectory := target.value / "marklit",
@@ -286,104 +270,86 @@ object MarklitPlugin extends AutoPlugin {
     marklitShowWarnings := true,
     marklitVerbose := false,
     marklitPageScope := false,
-    marklitDaemon := true,
-    marklitDaemonIdleTimeout := 900L,
     marklitCacheDirectory := Some(target.value / "marklit-cache"),
-    marklitMajorClasspaths := autoMajorClasspaths.value,
+    // Uncached: yields Map[String, Seq[File]], not a cacheable output type.
+    marklitMajorClasspaths := Def.uncached(autoMajorClasspaths.value),
 
     // Make `sbt ~marklitGenerate` (and friends) re-trigger when a markdown
-    // source under marklitSourceDirectory is edited. Without this, sbt only
-    // watches Scala/Java sources and a `.md` save would not retrigger the
-    // task.
-    Compile / watchSources += new WatchSource(
-      marklitSourceDirectory.value,
-      "*.md" || "*.markdown",
-      HiddenFileFilter
-    ),
+    // source under marklitSourceDirectory is edited. Uncached: WatchSource has
+    // no JsonFormat for sbt 2.0's task-result cache.
+    Compile / watchSources := Def.uncached {
+      (Compile / watchSources).value :+ new WatchSource(
+        marklitSourceDirectory.value,
+        "*.md" || "*.markdown",
+        HiddenFileFilter
+      )
+    },
 
-    // Compile task - check markdown files compile successfully
-    marklitCompile := {
+    // Compile task - check markdown files compile successfully.
+    // Def.uncached: this task drives the compiler and has File-typed inputs that
+    // sbt 2.0 can't hash for its default task-result cache; it must always run.
+    marklitCompile := Def.uncached {
       val log = streams.value.log
       val sourceDir = marklitSourceDirectory.value
       val verbose = marklitVerbose.value
-      // Get the project's full classpath (includes dependencies)
-      val cp = filterForwardedClasspath((Compile / fullClasspath).value.files)
+      val converter = fileConverter.value
+      val cp = filterForwardedClasspath(
+        classpathFiles((Compile / fullClasspath).value, converter)
+      ).map(_.getAbsolutePath).toVector
       val scalaVer = scalaVersion.value
-      val majorCps = marklitMajorClasspaths.value
+      val (cp2, cp3) = majorClasspathStrings(marklitMajorClasspaths.value)
       val cacheDir = marklitCacheDirectory.value
       val pageScope = marklitPageScope.value
-      val daemon =
-        if (marklitDaemon.value)
-          Some(
-            MarklitDaemonRegistry.get(
-              extractedJar,
-              marklitDaemonIdleTimeout.value,
-              log
-            )
-          )
-        else None
 
       if (!sourceDir.exists()) {
         log.info(s"[marklit] No source directory: $sourceDir")
       } else {
-        val sources = (sourceDir ** "*.md").get
+        val sources = (sourceDir ** "*.md").get()
         if (sources.isEmpty) {
           log.info(s"[marklit] No markdown files in $sourceDir")
         } else {
           log.info(s"[marklit] Checking ${sources.size} file(s)...")
 
-          val exitCode =
-            MarklitRunner.check(
-              extractedJar,
-              sources,
-              cp,
-              scalaVer,
-              verbose,
-              log,
-              majorCps,
-              daemon,
-              cacheDir,
-              pageScope
-            )
-          if (exitCode != 0) {
-            throw new MessageOnlyException(
-              s"marklit compilation failed with exit code $exitCode"
-            )
-          }
+          val config = MarklitRunConfig(
+            inputFiles = sources.map(_.toPath).toVector,
+            scalaVersion = Some(scalaVer),
+            classpath = cp,
+            classpath2 = cp2,
+            classpath3 = cp3,
+            cacheDir = cacheDir.map(_.toPath),
+            pageScope = pageScope,
+            check = true,
+            verbose = verbose
+          )
+          val _ = MarklitInProcess.run(config, "compilation", log)
         }
       }
     },
 
-    // Generate task - render output markdown files
-    marklitGenerate := {
+    // Generate task - render output markdown files.
+    // Def.uncached: side-effecting (runs the compiler, writes files) and returns
+    // Seq[File], which is not a cacheable output type in sbt 2.0.
+    marklitGenerate := Def.uncached {
       val log = streams.value.log
       val sourceDir = marklitSourceDirectory.value
       val targetDir = marklitTargetDirectory.value
       val showVersion = marklitShowVersion.value
       val showWarnings = marklitShowWarnings.value
       val verbose = marklitVerbose.value
-      // Get the project's full classpath (includes dependencies)
-      val cp = filterForwardedClasspath((Compile / fullClasspath).value.files)
+      val converter = fileConverter.value
+      val cp = filterForwardedClasspath(
+        classpathFiles((Compile / fullClasspath).value, converter)
+      ).map(_.getAbsolutePath).toVector
       val scalaVer = scalaVersion.value
-      val majorCps = marklitMajorClasspaths.value
+      val (cp2, cp3) = majorClasspathStrings(marklitMajorClasspaths.value)
       val cacheDir = marklitCacheDirectory.value
       val pageScope = marklitPageScope.value
-      val daemon =
-        if (marklitDaemon.value)
-          Some(
-            MarklitDaemonRegistry.get(
-              extractedJar,
-              marklitDaemonIdleTimeout.value,
-              log
-            )
-          )
-        else None
 
       if (!sourceDir.exists()) {
         log.info(s"[marklit] No source directory: $sourceDir")
         Seq.empty
       } else {
-        val sources = (sourceDir ** "*.md").get
+        val sources = (sourceDir ** "*.md").get()
         if (sources.isEmpty) {
           log.info(s"[marklit] No markdown files in $sourceDir")
           Seq.empty
@@ -392,53 +358,35 @@ object MarklitPlugin extends AutoPlugin {
           log.info(s"[marklit] Generating ${sources.size} file(s)...")
           log.info(s"[marklit] Scala version: $scalaVer")
 
-          val exitCode = MarklitRunner.generate(
-            extractedJar,
-            sources,
-            targetDir,
-            cp,
-            scalaVer,
-            showVersion,
-            showWarnings,
-            verbose,
-            log,
-            majorCps,
-            daemon,
-            cacheDir,
-            pageScope
+          val config = MarklitRunConfig(
+            inputFiles = sources.map(_.toPath).toVector,
+            outputDir = Some(targetDir.toPath),
+            scalaVersion = Some(scalaVer),
+            classpath = cp,
+            classpath2 = cp2,
+            classpath3 = cp3,
+            cacheDir = cacheDir.map(_.toPath),
+            pageScope = pageScope,
+            check = false,
+            showVersion = showVersion,
+            showWarnings = showWarnings,
+            verbose = verbose
           )
-          if (exitCode != 0) {
-            throw new MessageOnlyException(
-              s"marklit generation failed with exit code $exitCode"
-            )
-          }
+          val _ = MarklitInProcess.run(config, "generation", log)
 
           // Return generated files
-          sources.map { source =>
-            targetDir / source.getName
-          }
+          sources.map(source => targetDir / source.getName)
         }
       }
     },
 
     // Clean task — removes both rendered output and the persistent compile
-    // cache. We try the daemon's `clear-cache` RPC first when one is running
-    // (so the daemon's in-memory file handles are released cleanly on
-    // Windows); on any failure we fall back to a filesystem delete.
-    marklitClean := {
+    // cache via a plain filesystem delete (the in-process factory holds no OS
+    // locks on the cache dir; the disk cache opens/closes per entry).
+    marklitClean := Def.uncached {
       val log = streams.value.log
       val targetDir = marklitTargetDirectory.value
       val cacheDir = marklitCacheDirectory.value
-      val daemon =
-        if (marklitDaemon.value)
-          Some(
-            MarklitDaemonRegistry.get(
-              extractedJar,
-              marklitDaemonIdleTimeout.value,
-              log
-            )
-          )
-        else None
 
       if (targetDir.exists()) {
         IO.delete(targetDir)
@@ -447,17 +395,7 @@ object MarklitPlugin extends AutoPlugin {
 
       cacheDir.foreach { dir =>
         if (dir.exists()) {
-          val cleared = daemon match {
-            case Some(client) =>
-              try {
-                client.clearCache(dir.getAbsolutePath) match {
-                  case None    => true
-                  case Some(_) => false
-                }
-              } catch { case _: Throwable => false }
-            case None => false
-          }
-          if (!cleared) IO.delete(dir)
+          IO.delete(dir)
           log.info(s"[marklit] Cleared cache: $dir")
         }
       }

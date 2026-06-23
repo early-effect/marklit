@@ -189,17 +189,34 @@ object CompilerFactory:
   private final class ApiOnlyParent(host: ClassLoader)
       extends ClassLoader(null):
     override def loadClass(name: String, resolve: Boolean): Class[?] =
+      // Delegate the marklit<->shim bridge API plus everything the JDK platform
+      // classloader owns. The platform check is authoritative and covers java.*,
+      // javax.*, sun.*, jdk.* AND platform-module packages such as org.w3c.* /
+      // org.xml.* (java.xml) that JDBC drivers reach for at runtime — so we never
+      // again dead-end a JDK class that wasn't in a hand-maintained prefix list.
+      // `scala.*` / `dotty.*` are deliberately NOT shared: the child must find
+      // those in its own per-version URL list.
       val shared =
         name.startsWith("marklit.compiler.api.") ||
-          name.startsWith("java.") ||
-          name.startsWith("javax.") ||
-          name.startsWith("sun.") ||
-          name.startsWith("jdk.")
+          ApiOnlyParent.isPlatformClass(name)
       if shared then
         val c = host.loadClass(name)
         if resolve then resolveClass(c)
         c
       else throw new ClassNotFoundException(name)
+
+  private object ApiOnlyParent:
+    private val platformLoader: ClassLoader =
+      ClassLoader.getPlatformClassLoader
+
+    /** True when the JDK platform classloader can load `name` — the
+      * authoritative, version-current test for "is this a JDK platform class?".
+      */
+    def isPlatformClass(name: String): Boolean =
+      try
+        platformLoader.loadClass(name)
+        true
+      catch case _: ClassNotFoundException => false
 
   private final class Live(
       shim3Jar: Path,

@@ -396,12 +396,16 @@ private class ChildFirstClassLoader(
 ) extends java.net.URLClassLoader(urls, parent):
 
   override def loadClass(name: String, resolve: Boolean): Class[?] =
-    if name.startsWith("java.") ||
-      name.startsWith("javax.") ||
-      name.startsWith("sun.") ||
-      name.startsWith("jdk.") ||
-      name.startsWith("scala.") ||
-      name.startsWith("dotty.")
+    // `scala.*` / `dotty.*` must come from the parent (the per-version compiler
+    // loader), never child-first — otherwise we get duplicate `scala` package
+    // definitions. Everything the JDK platform classloader owns is delegated
+    // too: that authoritative check covers java.*, javax.*, sun.*, jdk.* AND
+    // platform-module packages like org.w3c.* / org.xml.* (java.xml) that JDBC
+    // drivers reach for. Consulting the platform loader instead of a
+    // hand-maintained prefix list means new platform packages never regress.
+    if name.startsWith("scala.") ||
+      name.startsWith("dotty.") ||
+      ChildFirstClassLoader.isPlatformClass(name)
     then super.loadClass(name, resolve)
     else
       try
@@ -414,3 +418,17 @@ private class ChildFirstClassLoader(
       catch
         case _: ClassNotFoundException =>
           super.loadClass(name, resolve)
+
+private object ChildFirstClassLoader:
+  /** The platform classloader can load every JDK platform-module class
+    * (java.base, java.xml, java.sql, java.naming, the CORBA/RMI packages, …)
+    * regardless of package. It is the authoritative, version-current source for
+    * "is this a JDK class?" — far safer than enumerating package prefixes.
+    */
+  private val platformLoader: ClassLoader = ClassLoader.getPlatformClassLoader
+
+  def isPlatformClass(name: String): Boolean =
+    try
+      platformLoader.loadClass(name)
+      true
+    catch case _: ClassNotFoundException => false
