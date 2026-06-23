@@ -48,10 +48,10 @@ final case class MarklitFileReport(
 )
 
 /** Structured result of a run. `notices` are ordered informational lines the
-  * caller may surface verbatim (the facade has already applied the verbose
-  * gate when deciding which lines to include). Compile failures are reported as
-  * data via [[MarklitFileReport.success]]; only file-read/parse/resolution
-  * errors fail the effect.
+  * caller may surface verbatim (the facade has already applied the verbose gate
+  * when deciding which lines to include). Compile failures are reported as data
+  * via [[MarklitFileReport.success]]; only file-read/parse/resolution errors
+  * fail the effect.
   */
 final case class MarklitRunResult(
     files: Vector[MarklitFileReport],
@@ -61,16 +61,16 @@ final case class MarklitRunResult(
   def failedCount: Int = files.count(!_.success)
 
 /** The shared, side-effect-free orchestration that drives marklit over a set of
-  * files: parse `//> using` directives, aggregate and resolve dependencies once,
-  * build per-major classpaths, process each file through [[Marklit]], render and
-  * optionally write outputs. Both the CLI and the build-tool plugins call this
-  * so the multi-file logic lives in exactly one place.
+  * files: parse `//> using` directives, aggregate and resolve dependencies
+  * once, build per-major classpaths, process each file through [[Marklit]],
+  * render and optionally write outputs. Both the CLI and the build-tool plugins
+  * call this so the multi-file logic lives in exactly one place.
   */
 object MarklitRun:
 
-  /** Run with a freshly-built [[CompilerFactory]] (the CLI path). The factory is
-    * built once and shared across all files, so per-version compilers are reused
-    * within the run.
+  /** Run with a freshly-built [[CompilerFactory]] (the CLI path). The factory
+    * is built once and shared across all files, so per-version compilers are
+    * reused within the run.
     */
   def run(
       config: MarklitRunConfig,
@@ -87,8 +87,8 @@ object MarklitRun:
     }
 
   /** Run with a caller-supplied, long-lived [[CompilerFactory]] (the plugin
-    * path). The factory's per-version cache survives across invocations, keeping
-    * compilers warm — the in-process replacement for the old daemon.
+    * path). The factory's per-version cache survives across invocations,
+    * keeping compilers warm — the in-process replacement for the old daemon.
     */
   def runWith(
       config: MarklitRunConfig,
@@ -118,7 +118,7 @@ object MarklitRun:
       // Effective default Scala version before per-file using directives.
       // Precedence: config.scalaVersion > the bundled shim's compile-time version.
       shimDefault = CompilerFactory.defaultScalaVersion
-      cliDefault  = config.scalaVersion.getOrElse(shimDefault)
+      cliDefault = config.scalaVersion.getOrElse(shimDefault)
 
       _ <- ZIO.when(config.verbose)(
         addNote(s"Default Scala version: $cliDefault")
@@ -199,7 +199,7 @@ object MarklitRun:
       // wins over the run default).
       reports <- ZIO.foreach(perFile) { case (path, directives) =>
         val fileDefault = directives.scalaVersion.getOrElse(cliDefault)
-        val absPath     = path.toAbsolutePath
+        val absPath = path.toAbsolutePath
         Marklit
           .processFile(absPath)
           .map(result => buildReport(result, config))
@@ -253,9 +253,7 @@ object MarklitRun:
       config: MarklitRunConfig
   ): MarklitFileReport =
     val blockErrors =
-      result.errors.map((block, error) =>
-        (block.location.pretty, error.pretty)
-      )
+      result.errors.map((block, error) => (block.location.pretty, error.pretty))
 
     val failedCompiles =
       result.processingResult.blockResults

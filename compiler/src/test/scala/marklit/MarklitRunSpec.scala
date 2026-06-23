@@ -21,15 +21,13 @@ object MarklitRunSpec extends ZIOSpecDefault:
     ZIO.acquireRelease(
       ZIO.attempt(Files.createTempDirectory("marklit-run-out-"))
     )(p =>
-      ZIO
-        .attempt {
-          if Files.exists(p) then
-            Files
-              .walk(p)
-              .sorted(java.util.Comparator.reverseOrder())
-              .forEach(f => Files.deleteIfExists(f): Unit)
-        }
-        .ignore
+      ZIO.attempt {
+        if Files.exists(p) then
+          Files
+            .walk(p)
+            .sorted(java.util.Comparator.reverseOrder())
+            .forEach(f => Files.deleteIfExists(f): Unit)
+      }.ignore
     )
 
   def spec = suite("MarklitRun")(
@@ -44,7 +42,7 @@ object MarklitRunSpec extends ZIOSpecDefault:
           |""".stripMargin
       ZIO.scoped {
         for
-          file   <- tempMd(md)
+          file <- tempMd(md)
           outDir <- tempDir
           result <- MarklitRun.run(
             MarklitRunConfig(
@@ -55,7 +53,7 @@ object MarklitRunSpec extends ZIOSpecDefault:
           report = result.files.head
           outPath = report.outputPath.get
           wroteFile <- ZIO.attempt(Files.exists(outPath))
-          written   <- ZIO.attempt(Files.readString(outPath))
+          written <- ZIO.attempt(Files.readString(outPath))
         yield assertTrue(
           result.success,
           result.files.size == 1,
@@ -75,7 +73,7 @@ object MarklitRunSpec extends ZIOSpecDefault:
           |""".stripMargin
       ZIO.scoped {
         for
-          file   <- tempMd(md)
+          file <- tempMd(md)
           outDir <- tempDir
           result <- MarklitRun.run(
             MarklitRunConfig(
@@ -105,7 +103,7 @@ object MarklitRunSpec extends ZIOSpecDefault:
           |""".stripMargin
       ZIO.scoped {
         for
-          file   <- tempMd(md)
+          file <- tempMd(md)
           outDir <- tempDir
           result <- MarklitRun.run(
             MarklitRunConfig(
@@ -128,7 +126,9 @@ object MarklitRunSpec extends ZIOSpecDefault:
     },
     test("missing input file fails the effect") {
       val missing = Path.of("/tmp/marklit-this-does-not-exist-12345.md")
-      for exit <- MarklitRun.run(MarklitRunConfig(inputFiles = Vector(missing))).exit
+      for exit <- MarklitRun
+          .run(MarklitRunConfig(inputFiles = Vector(missing)))
+          .exit
       yield assertTrue(exit.isFailure)
     }
   ) @@ TestAspect.sequential @@ TestAspect.timeout(120.seconds)

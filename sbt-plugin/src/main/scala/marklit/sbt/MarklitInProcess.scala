@@ -8,10 +8,11 @@ import zio.Unsafe
   * ([[marklit.MarklitRun]]) and translates the structured result back into sbt
   * logging + failure semantics.
   *
-  * Execution is serialized on a single monitor: [[marklit.compiler.ScalaCompiler]]
-  * redirects `System.out`/`System.err` at the JVM level while a block executes,
-  * which is unsafe if two marklit tasks run concurrently inside the same sbt
-  * JVM. The old daemon serialized via its RPC lock; this preserves that.
+  * Execution is serialized on a single monitor:
+  * [[marklit.compiler.ScalaCompiler]] redirects `System.out`/`System.err` at
+  * the JVM level while a block executes, which is unsafe if two marklit tasks
+  * run concurrently inside the same sbt JVM. The old daemon serialized via its
+  * RPC lock; this preserves that.
   */
 object MarklitInProcess {
 

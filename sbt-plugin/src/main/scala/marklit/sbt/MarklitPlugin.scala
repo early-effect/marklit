@@ -79,8 +79,8 @@ object MarklitPlugin extends AutoPlugin {
     * In sbt 2.0 the build output layout is
     * `<base>/out/jvm/scala-<fullVersion>/<module>/classes`, and the `target`
     * key for the dep is already scoped to the *current* session's Scala version
-    * (e.g. `.../out/jvm/scala-3.8.2/marklit-example-core`). To reach a different
-    * cross version we substitute the `scala-<version>` path segment.
+    * (e.g. `.../out/jvm/scala-3.8.2/marklit-example-core`). To reach a
+    * different cross version we substitute the `scala-<version>` path segment.
     *
     * For robustness we also emit the sbt 1.x candidates (`target/scala-<binV>`
     * and `target/scala-<fullVersion>`); the caller filters by existence and
