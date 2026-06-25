@@ -1,0 +1,18 @@
+# Start with a clean lifecycle log.
+> resetEvents
+
+# First generate: resource acquired once, block sees the shared counter at 1,
+# resource closed once.
+> docs/marklitGenerate
+$ exists target/docs/doc.md
+> checkOutput
+
+# Second generate in the SAME sbt session: the warm factory survives, but the
+# run resource is re-acquired and re-closed for this run — so the block again
+# reads 1, not 2.
+> docs/marklitGenerate
+> checkOutput
+
+# Across the two runs the lifecycle fired exactly once each, acquire before
+# close: acquire,close,acquire,close.
+> checkLifecycle

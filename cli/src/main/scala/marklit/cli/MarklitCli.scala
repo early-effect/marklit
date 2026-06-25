@@ -25,7 +25,8 @@ final case class MarklitOptions(
     daemon: Boolean,
     idleTimeoutSeconds: Option[Int],
     cacheDir: Option[Path] = None,
-    pageScope: Boolean = false
+    pageScope: Boolean = false,
+    runResourceClass: Option[String] = None
 )
 
 object MarklitCli extends ZIOCliDefault:
@@ -141,7 +142,13 @@ object MarklitCli extends ZIOCliDefault:
     Options.boolean("page-scope") ??
       "Share scope across all anonymous blocks in each file (default: each block isolated)"
 
-  // zio-cli's `++` flattens via `Zippable`, so the result is a flat 16-tuple.
+  // --run-resource: FQN of a java.util.function.Supplier[AutoCloseable] on the
+  // docs' classpath, acquired once before any file and closed after the last.
+  val runResourceClass: Options[Option[String]] =
+    Options.text("run-resource").optional ??
+      "FQN of a java.util.function.Supplier[AutoCloseable] acquired once per run and closed at run end"
+
+  // zio-cli's `++` flattens via `Zippable`, so the result is a flat 17-tuple.
   val combinedOptions: Options[
     (
         Option[Path],
@@ -159,10 +166,11 @@ object MarklitCli extends ZIOCliDefault:
         Boolean,
         Option[Int],
         Option[Path],
-        Boolean
+        Boolean,
+        Option[String]
     )
   ] =
-    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ showWarningsInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion ++ daemon ++ idleTimeoutSeconds ++ cacheDir ++ pageScope
+    outputDir ++ watch ++ verbose ++ check ++ showVersionInOutput ++ showWarningsInOutput ++ classpath ++ classpath2 ++ classpath3 ++ dependencies ++ repositories ++ scalaVersion ++ daemon ++ idleTimeoutSeconds ++ cacheDir ++ pageScope ++ runResourceClass
 
   // Main command
   val marklitCommand: Command[MarklitOptions] =
@@ -184,7 +192,8 @@ object MarklitCli extends ZIOCliDefault:
           d,
           idle,
           cache,
-          ps
+          ps,
+          runRes
         ) =
           opts
         MarklitOptions(
@@ -204,7 +213,8 @@ object MarklitCli extends ZIOCliDefault:
           d,
           idle,
           cache,
-          ps
+          ps,
+          runRes
         )
       }
       .withHelp(
@@ -259,6 +269,7 @@ object MarklitCli extends ZIOCliDefault:
       repos = options.repositories.toVector,
       cacheDir = options.cacheDir,
       pageScope = options.pageScope,
+      runResourceClass = options.runResourceClass,
       check = options.check,
       showVersion = options.showVersionInOutput,
       showWarnings = options.showWarningsInOutput,

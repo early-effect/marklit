@@ -30,7 +30,8 @@ final case class MarklitRunConfig(
     check: Boolean = false,
     showVersion: Boolean = true,
     showWarnings: Boolean = true,
-    verbose: Boolean = false
+    verbose: Boolean = false,
+    runResourceClass: Option[String] = None
 )
 
 /** Per-file outcome with no Console side effects. `rendered` is populated when
@@ -196,24 +197,40 @@ object MarklitRun:
       }
 
       // Process each file with its own effective default version (file directive
-      // wins over the run default).
-      reports <- ZIO.foreach(perFile) { case (path, directives) =>
-        val fileDefault = directives.scalaVersion.getOrElse(cliDefault)
-        val absPath = path.toAbsolutePath
-        Marklit
-          .processFile(absPath)
-          .map(result => buildReport(result, config))
-          .provide(
-            ZLayer.succeed(factory),
-            Marklit.liveWithFactory(
-              fileDefault,
-              fullClasspath,
-              allScalacOptions,
-              majorClasspaths,
-              config.cacheDir,
-              if config.pageScope then ScopeMode.Page else ScopeMode.Isolated
-            )
-          )
+      // wins over the run default). The whole pass runs inside one scope: a
+      // build-provided run resource (when configured) is acquired once before
+      // any file and released after the last — so external state set up for the
+      // docs (a DB container, a temp dir, …) lives for exactly one run and is
+      // torn down before the next, even on failure.
+      reports <- ZIO.scoped {
+        acquireRunResource(
+          config,
+          factory,
+          fullClasspath,
+          cliDefault,
+          addNote
+        ).flatMap { runLoader =>
+          ZIO.foreach(perFile) { case (path, directives) =>
+            val fileDefault = directives.scalaVersion.getOrElse(cliDefault)
+            val absPath = path.toAbsolutePath
+            Marklit
+              .processFile(absPath)
+              .map(result => buildReport(result, config))
+              .provide(
+                ZLayer.succeed(factory),
+                Marklit.liveWithFactory(
+                  fileDefault,
+                  fullClasspath,
+                  allScalacOptions,
+                  majorClasspaths,
+                  config.cacheDir,
+                  if config.pageScope then ScopeMode.Page
+                  else ScopeMode.Isolated,
+                  runLoader
+                )
+              )
+          }
+        }
       }
 
       // Write outputs only when the whole run succeeded — matching the CLI's
@@ -243,6 +260,63 @@ object MarklitRun:
 
       noticeLines <- notices.get
     yield MarklitRunResult(reports, noticeLines.toVector)
+
+  /** Acquire the build-provided run resource (when configured) for the duration
+    * of the enclosing [[Scope]]. A no-op when `config.runResourceClass` is
+    * unset.
+    *
+    * The resource is a user class on the docs' own classpath implementing the
+    * JDK type `java.util.function.Supplier[AutoCloseable]`: `get()` performs
+    * setup (start a DB container, create a schema, …) and returns an
+    * `AutoCloseable` whose `close()` is the teardown. Using only JDK types
+    * keeps the instance usable across marklit's classloader boundary — see
+    * [[CompilerFactory.userClassLoader]].
+    *
+    * Both `get()` and `close()` are best-effort with respect to the run: a
+    * setup failure is surfaced as a notice and lets the run proceed (the docs
+    * that need the resource will fail on their own and report it); a teardown
+    * failure is logged and swallowed so it never masks the run's real result.
+    */
+  private def acquireRunResource(
+      config: MarklitRunConfig,
+      factory: CompilerFactory,
+      userClasspath: Vector[String],
+      defaultVersion: String,
+      addNote: String => UIO[Unit]
+  ): URIO[Scope, Option[ClassLoader]] =
+    config.runResourceClass match
+      case None      => ZIO.none
+      case Some(fqn) =>
+        for
+          // Build the per-run user loader U first. The resource instance lives
+          // in U, and every block executes against U (see liveWithFactory), so
+          // all blocks share the one instance for this run.
+          loader <- factory.userClassLoader(defaultVersion, userClasspath)
+          _ <- ZIO
+            .acquireRelease(
+              ZIO.attempt {
+                val supplier = Class
+                  .forName(fqn, true, loader)
+                  .getDeclaredConstructor()
+                  .newInstance()
+                  .asInstanceOf[java.util.function.Supplier[AutoCloseable]]
+                supplier.get()
+              }
+            )(handle =>
+              ZIO
+                .attempt(handle.close())
+                .catchAll(e =>
+                  addNote(
+                    s"run resource '$fqn' teardown failed: ${e.getMessage}"
+                  )
+                )
+            )
+            .foldZIO(
+              e =>
+                addNote(s"run resource '$fqn' setup failed: ${e.getMessage}"),
+              _ => ZIO.unit
+            )
+        yield Some(loader)
 
   /** Build a side-effect-free per-file report from a [[MarklitResult]],
     * rendering output markdown when an output dir is configured and the run is

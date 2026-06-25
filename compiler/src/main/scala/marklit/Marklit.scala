@@ -87,15 +87,21 @@ object Marklit:
       defaultScalacOptions: Vector[String] = Vector.empty,
       majorClasspaths: Map[String, Vector[String]] = Map.empty,
       cacheDir: Option[Path] = None,
-      scopeMode: ScopeMode = ScopeMode.Isolated
+      scopeMode: ScopeMode = ScopeMode.Isolated,
+      runtimeParent: Option[ClassLoader] = None
   ): ZLayer[CompilerFactory, Nothing, Marklit] =
     ZLayer.fromZIO {
       for
         factory <- ZIO.service[CompilerFactory]
+        // When a run resource is configured, `runtimeParent` is the per-run
+        // user loader U: the default compiler executes blocks against it so the
+        // resource is one shared instance for the whole run.
         defaultC <- factory.forVersion(
           defaultScalaVersion,
           defaultExtraClasspath,
-          defaultScalacOptions
+          defaultScalacOptions,
+          runtimeParent,
+          shareUserClasses = runtimeParent.isDefined
         )
         cache = cacheDir.map(BlockCache.disk).getOrElse(BlockCache.noop)
         adapter = CompilerServiceAdapter.fromFactory(
