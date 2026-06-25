@@ -43,8 +43,25 @@ trait CompilerFactory:
   def forVersion(
       scalaVersion: String,
       extraClasspath: Vector[String] = Vector.empty,
-      scalacOptions: Vector[String] = Vector.empty
+      scalacOptions: Vector[String] = Vector.empty,
+      runtimeParent: Option[ClassLoader] = None,
+      shareUserClasses: Boolean = false
   ): UIO[Compiler]
+
+  /** A classloader that can load *user* classes (`extraClasspath`) against the
+    * per-version compiler stdlib — the same parent loader block execution uses
+    * ([[ScalaCompiler.executeCompiled]]).
+    *
+    * Used to instantiate a build-provided run resource (a
+    * `java.util.function.Supplier[AutoCloseable]`) once per run, outside the
+    * per-block execution path. The returned loader is scoped: it is closed when
+    * the surrounding [[Scope]] closes, so callers acquire it inside the run's
+    * `ZIO.scoped` boundary.
+    */
+  def userClassLoader(
+      scalaVersion: String,
+      extraClasspath: Vector[String]
+  ): URIO[Scope, ClassLoader]
 
 object CompilerFactory:
 
@@ -226,7 +243,9 @@ object CompilerFactory:
     override def forVersion(
         scalaVersion: String,
         extraClasspath: Vector[String] = Vector.empty,
-        scalacOptions: Vector[String] = Vector.empty
+        scalacOptions: Vector[String] = Vector.empty,
+        runtimeParent: Option[ClassLoader] = None,
+        shareUserClasses: Boolean = false
     ): UIO[Compiler] =
       bundleFor(scalaVersion).map { bundle =>
         // outputDir per call is fine — the heavy work (classloader + Coursier
@@ -239,8 +258,34 @@ object CompilerFactory:
           scalacOptions = scalacOptions,
           outputDir = outputDir,
           scalaVersion = scalaVersion,
-          runtimeLoader = Some(bundle.loader)
+          // When a run resource is configured, `runtimeParent` is the per-run
+          // user loader U (itself a child of bundle.loader, so it still sees the
+          // matching stdlib). Blocks then load user classes from U and share the
+          // resource instance. Otherwise execution parents off bundle.loader as
+          // before.
+          runtimeLoader = Some(runtimeParent.getOrElse(bundle.loader)),
+          shareUserClasses = shareUserClasses
         )
+      }
+
+    override def userClassLoader(
+        scalaVersion: String,
+        extraClasspath: Vector[String]
+    ): URIO[Scope, ClassLoader] =
+      bundleFor(scalaVersion).flatMap { bundle =>
+        ZIO.acquireRelease(
+          ZIO.succeed {
+            val urls: Array[URL] =
+              extraClasspath
+                .map(p => java.nio.file.Paths.get(p).toUri.toURL)
+                .toArray
+            new URLClassLoader(urls, bundle.loader): ClassLoader
+          }
+        ) {
+          case cl: URLClassLoader =>
+            ZIO.attempt(cl.close()).ignore
+          case _ => ZIO.unit
+        }
       }
 
     private def bundleFor(scalaVersion: String): UIO[VersionBundle] =

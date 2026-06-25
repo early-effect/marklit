@@ -34,6 +34,14 @@ import scala.jdk.CollectionConverters.*
   *   classloader used to resolve user-code classes at execution time. When
   *   provided, this is the per-version compiler loader from the factory; when
   *   None we fall back to `getClass.getClassLoader` (legacy in-process path).
+  * @param shareUserClasses
+  *   when true, every block (including ZIO blocks) loads user classes
+  *   parent-first from [[runtimeLoader]] instead of child-first. This makes a
+  *   build-provided run resource a single shared instance across all blocks in
+  *   the run — at the cost of the per-block-fresh init that the child-first
+  *   loader otherwise gives ZIO blocks. Enabled only when a run resource is
+  *   configured (see [[CompilerFactory.userClassLoader]]); the default path is
+  *   unchanged.
   */
 final class ScalaCompiler(
     invoker: DotcInvoker,
@@ -41,7 +49,8 @@ final class ScalaCompiler(
     scalacOptions: Vector[String],
     outputDir: Path,
     override val scalaVersion: String,
-    runtimeLoader: Option[ClassLoader] = None
+    runtimeLoader: Option[ClassLoader] = None,
+    shareUserClasses: Boolean = false
 ) extends Compiler:
 
   /** Whether we're compiling Scala 3 code */
@@ -204,7 +213,17 @@ final class ScalaCompiler(
           // current loader — fine for single-version use.
           val parent = runtimeLoader.getOrElse(getClass.getClassLoader)
           val classLoader =
-            if context.isZIOApp then new ChildFirstClassLoader(urls, parent)
+            if shareUserClasses then
+              // Run-resource mode: `parent` is the per-run user loader U, which
+              // already holds the user classpath (incl. ZIO). A standard
+              // parent-first URLClassLoader resolves every user class from U, so
+              // a build-provided resource is one shared instance across all
+              // blocks; only this block's own `MarklitWrapper$` (in
+              // classFilesDir, not in U) loads from the child URLs. ZIO blocks
+              // use this path too — sharing is chosen over per-block-fresh init.
+              new java.net.URLClassLoader(urls, parent)
+            else if context.isZIOApp then
+              new ChildFirstClassLoader(urls, parent)
             else new java.net.URLClassLoader(urls, parent)
 
           // Redirect scala.Console on the *user code's* classloader. Each

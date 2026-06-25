@@ -276,6 +276,36 @@ If you want to render some files page-scoped and others isolated within the same
 
 Default remains off: marklit's per-block isolation is the better default for reference docs where each block stands alone. Flip page scope on per-project, per-module, or per-task when the document genuinely reads as one continuous session.
 
+## Run-scoped resources (shared setup/teardown)
+
+Executable blocks run their side effects on **every** generate run — the block cache stores compiled classes, not output, so execution always replays. If your docs talk to something external and stateful (a database, a temp directory, a server), that external state must be set up before the docs run and reset afterward, or a second `marklitGenerate` in the same session sees the first run's leftovers.
+
+marklit gives you one lifecycle hook for this: a **run resource** that is acquired once before any file is processed and closed once after the last — inside a scope, so teardown happens even when a file fails. While a resource is configured, every block in the run (including `zio-app` blocks) shares the **same** instance, so a single object set up at run start is visible everywhere.
+
+The contract is a plain JDK type so your class needs **no dependency on marklit**: implement `java.util.function.Supplier[AutoCloseable]`. `get()` is your setup and returns the teardown as an `AutoCloseable`:
+
+```scala
+// On your docs' compile classpath — no marklit dependency:
+package mydocs
+
+class DocResource extends java.util.function.Supplier[AutoCloseable]:
+  def get(): AutoCloseable =
+    val db = Database.start()       // run-once setup (your own ZIO/blocking code is fine)
+    () => db.reset()                // close() == run-once teardown
+```
+
+Point the build at it by fully-qualified class name:
+
+- **sbt:** `marklitRunResourceClass := Some("mydocs.DocResource")`
+- **Mill:** `def marklitRunResourceClass = Some("mydocs.DocResource")`
+- **CLI:** `marklit --run-resource mydocs.DocResource ...`
+
+Notes:
+
+- The resource class loads from your docs' classpath against the run's Scala version, so it can use your own libraries. Only the `Supplier`/`AutoCloseable` *seam* must be JDK types — internals are yours.
+- A setup failure is reported as a notice and the run still proceeds (the blocks that needed it will fail and report on their own); a teardown failure is logged and never fails an otherwise-successful run.
+- The warm session factory is untouched — only the resource lives for exactly one run.
+
 ## Build tool integration
 
 ### sbt
@@ -361,6 +391,7 @@ Common flags:
 | `--no-show-version` | Suppress the `// Scala x.y.z` annotation on output blocks. |
 | `--cache-dir` | Persistent on-disk block cache directory (off by default; both build plugins enable it automatically). |
 | `--page-scope` | Share scope across all anonymous blocks in each file (per Scala version). Off by default. |
+| `--run-resource` | FQN of a `java.util.function.Supplier[AutoCloseable]` acquired once per run and closed at run end. See [Run-scoped resources](#run-scoped-resources-shared-setupteardown). |
 | `--verbose`, `-v` | Verbose logging. |
 
 You can also declare dependencies inline in a Markdown file using [scala-cli](https://scala-cli.virtuslab.org/) `using` directives:

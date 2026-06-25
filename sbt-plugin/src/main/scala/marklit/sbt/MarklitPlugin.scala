@@ -40,6 +40,16 @@ object MarklitPlugin extends AutoPlugin {
       "Per-major classpath overrides for cross-version blocks (key = Scala major like \"2\" or \"3\")"
     )
 
+    // Fully-qualified name of a build-provided run resource: a class on the
+    // docs' compile classpath implementing `java.util.function.Supplier<
+    // AutoCloseable>`. Its `get()` is invoked once before any doc is processed
+    // (start a DB container, create a schema, …) and the returned
+    // `AutoCloseable.close()` once after the last doc (even on failure). With a
+    // resource set, all blocks share one instance for the run. `None` disables.
+    val marklitRunResourceClass = settingKey[Option[String]](
+      "FQN of a java.util.function.Supplier[AutoCloseable] acquired once per run and closed at run end (None disables)"
+    )
+
     // Tasks
     val marklitCompile =
       taskKey[Unit]("Compile and verify markdown code blocks")
@@ -270,6 +280,7 @@ object MarklitPlugin extends AutoPlugin {
     marklitShowWarnings := true,
     marklitVerbose := false,
     marklitPageScope := false,
+    marklitRunResourceClass := None,
     marklitCacheDirectory := Some(target.value / "marklit-cache"),
     // Uncached: yields Map[String, Seq[File]], not a cacheable output type.
     marklitMajorClasspaths := Def.uncached(autoMajorClasspaths.value),
@@ -300,6 +311,7 @@ object MarklitPlugin extends AutoPlugin {
       val (cp2, cp3) = majorClasspathStrings(marklitMajorClasspaths.value)
       val cacheDir = marklitCacheDirectory.value
       val pageScope = marklitPageScope.value
+      val runResourceClass = marklitRunResourceClass.value
 
       if (!sourceDir.exists()) {
         log.info(s"[marklit] No source directory: $sourceDir")
@@ -318,6 +330,7 @@ object MarklitPlugin extends AutoPlugin {
             classpath3 = cp3,
             cacheDir = cacheDir.map(_.toPath),
             pageScope = pageScope,
+            runResourceClass = runResourceClass,
             check = true,
             verbose = verbose
           )
@@ -344,6 +357,7 @@ object MarklitPlugin extends AutoPlugin {
       val (cp2, cp3) = majorClasspathStrings(marklitMajorClasspaths.value)
       val cacheDir = marklitCacheDirectory.value
       val pageScope = marklitPageScope.value
+      val runResourceClass = marklitRunResourceClass.value
 
       if (!sourceDir.exists()) {
         log.info(s"[marklit] No source directory: $sourceDir")
@@ -367,6 +381,7 @@ object MarklitPlugin extends AutoPlugin {
             classpath3 = cp3,
             cacheDir = cacheDir.map(_.toPath),
             pageScope = pageScope,
+            runResourceClass = runResourceClass,
             check = false,
             showVersion = showVersion,
             showWarnings = showWarnings,

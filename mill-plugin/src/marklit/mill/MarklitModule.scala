@@ -55,6 +55,15 @@ trait MarklitModule extends ScalaModule {
     */
   def marklitPageScope: T[Boolean] = false
 
+  /** FQN of a build-provided run resource: a class on the docs' compile
+    * classpath implementing `java.util.function.Supplier[AutoCloseable]`. Its
+    * `get()` runs once before any doc is processed (start a DB container, create
+    * a schema, …) and the returned `AutoCloseable.close()` once after the last
+    * doc, even on failure. With a resource set, all blocks share one instance
+    * for the run. Defaults to `None` (disabled).
+    */
+  def marklitRunResourceClass: T[Option[String]] = None
+
   /** Additional classpath entries to pass to marklit. By default, uses this
     * module's compile classpath, filtering out Scala standard library jars to
     * avoid version conflicts (marklit resolves its own Scala library).
@@ -159,6 +168,7 @@ trait MarklitModule extends ScalaModule {
     val scalaVer = scalaVersion()
     val cacheDirOpt = marklitCacheDir().map(_.path)
     val pageScope = marklitPageScope()
+    val runResourceClass = marklitRunResourceClass()
     val worker = marklitWorker()
 
     if (!os.exists(sourceDir)) {
@@ -186,7 +196,8 @@ trait MarklitModule extends ScalaModule {
           taskLabel = "generation",
           log = Task.log,
           cacheDir = cacheDirOpt,
-          pageScope = pageScope
+          pageScope = pageScope,
+          runResourceClass = runResourceClass
         )
 
         sources.map(source => PathRef(targetDir / source.last))
@@ -206,6 +217,7 @@ trait MarklitModule extends ScalaModule {
     val scalaVer = scalaVersion()
     val cacheDirOpt = marklitCacheDir().map(_.path)
     val pageScope = marklitPageScope()
+    val runResourceClass = marklitRunResourceClass()
     val worker = marklitWorker()
 
     if (!os.exists(sourceDir)) {
@@ -231,7 +243,8 @@ trait MarklitModule extends ScalaModule {
           taskLabel = "check",
           log = Task.log,
           cacheDir = cacheDirOpt,
-          pageScope = pageScope
+          pageScope = pageScope,
+          runResourceClass = runResourceClass
         )
       }
     }
@@ -254,7 +267,8 @@ trait MarklitModule extends ScalaModule {
       taskLabel: String,
       log: mill.api.daemon.Logger,
       cacheDir: Option[os.Path],
-      pageScope: Boolean
+      pageScope: Boolean,
+      runResourceClass: Option[String]
   ): Unit = {
     val config = MarklitRunConfig(
       inputFiles = sources.map(_.toNIO).toVector,
@@ -265,6 +279,7 @@ trait MarklitModule extends ScalaModule {
       classpath3 = majorClasspaths.getOrElse("3", Seq.empty).toVector,
       cacheDir = cacheDir.map(_.toNIO),
       pageScope = pageScope,
+      runResourceClass = runResourceClass,
       check = check,
       showVersion = showVersion,
       showWarnings = showWarnings,
