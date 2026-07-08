@@ -19,19 +19,19 @@ val zioVersion = "2.1.26"
 val coursierInterfaceVersion = "1.0.9"
 
 ThisBuild / scalaVersion := marklitScalaVersion
-ThisBuild / organization := "io.github.russwyte"
+ThisBuild / organization := "rocks.earlyeffect"
 // version is derived from git tags by sbt-dynver (tag v0.1.0 -> 0.1.0).
 
-ThisBuild / organizationName := "russwyte"
-ThisBuild / organizationHomepage := Some(url("https://github.com/russwyte"))
+ThisBuild / organizationName := "Early Effect"
+ThisBuild / organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
 ThisBuild / licenses := List(
   "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt")
 )
-ThisBuild / homepage := Some(url("https://github.com/russwyte/marklit"))
+ThisBuild / homepage := Some(url("https://github.com/early-effect/marklit"))
 ThisBuild / scmInfo := Some(
   ScmInfo(
-    url("https://github.com/russwyte/marklit"),
-    "scm:git@github.com:russwyte/marklit.git"
+    url("https://github.com/early-effect/marklit"),
+    "scm:git@github.com:early-effect/marklit.git"
   )
 )
 ThisBuild / developers := List(
@@ -53,12 +53,12 @@ ThisBuild / publishTo := {
   else localStaging.value
 }
 
-// PGP key used to sign published artifacts (sbt-pgp + local gpg keyring).
-// CI overrides the key via PGP_KEY_HEX (dedicated GitHub Actions signing key);
-// local manual publishing falls back to the personal key on this machine.
-usePgpKeyHex(
-  sys.env.getOrElse("PGP_KEY_HEX", "2F64727A87F1BCF42FD307DD8582C4F16659A7D6")
-)
+// CI-only publishing: the signing key hex comes from the PGP_KEY_HEX env var, set
+// by the shared early-effect org secret in the release workflow. There is no real
+// key in this file — the "MISSING_KEY_HEX" sentinel keeps the build loadable for
+// local compile/test but makes signing fail loudly if anyone tries to publish
+// off-CI. Rotating the key is a one-place change to the PGP_KEY_HEX org secret.
+usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
 // Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
 // fileConverter must be read inside each Def.task — `.value` is a macro that
@@ -324,7 +324,7 @@ lazy val plugin = project
     // records the libraryDependency below for downstream resolution).
     scalaVersion := marklitScalaVersion,
     libraryDependencies +=
-      "io.github.russwyte" %% "marklit-compiler" % version.value,
+      "rocks.earlyeffect" %% "marklit-compiler" % version.value,
     scalacOptions := Seq("-deprecation", "-feature"),
     // Scripted tests: publish this plugin + its libs to the local repo first,
     // and pass the version through so each test's project/plugins.sbt can

@@ -25,7 +25,7 @@ object plugin extends ScalaModule with PublishModule {
 
   def mvnDeps = Seq(
     mvn"com.lihaoyi::mill-libs:1.1.5",
-    mvn"io.github.russwyte::marklit-compiler:$marklitVersion"
+    mvn"rocks.earlyeffect::marklit-compiler:$marklitVersion"
   )
 
   // Plugin source only — the orchestration lives in marklit-compiler.
@@ -50,10 +50,10 @@ object plugin extends ScalaModule with PublishModule {
 
   def pomSettings = PomSettings(
     description = "Mill plugin for marklit - typechecked Scala documentation",
-    organization = "io.github.russwyte",
-    url = "https://github.com/russwyte/marklit",
+    organization = "rocks.earlyeffect",
+    url = "https://github.com/early-effect/marklit",
     licenses = Seq(License.`Apache-2.0`),
-    versionControl = VersionControl.github("russwyte", "marklit"),
+    versionControl = VersionControl.github("early-effect", "marklit"),
     developers = Seq(
       Developer("russwyte", "Russ White", "https://github.com/russwyte")
     )

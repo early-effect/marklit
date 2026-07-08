@@ -1,3 +1,3 @@
 addSbtPlugin(
-  "io.github.russwyte" % "sbt-marklit" % sys.props("plugin.version")
+  "rocks.earlyeffect" % "sbt-marklit" % sys.props("plugin.version")
 )

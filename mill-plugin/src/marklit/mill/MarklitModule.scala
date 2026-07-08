@@ -15,7 +15,7 @@ import marklit.MarklitRunConfig
   * Example usage:
   * {{{
   * //| mvnDeps:
-  * //| - io.github.russwyte::mill-marklit:0.1.0-LOCAL
+  * //| - rocks.earlyeffect::mill-marklit:0.1.0-LOCAL
   *
   * import marklit.mill.MarklitModule
   *

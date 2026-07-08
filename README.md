@@ -1,6 +1,6 @@
 # marklit
 
-[![Maven Repository](https://img.shields.io/maven-central/v/io.github.russwyte/sbt-marklit_sbt2_3?logo=apachemaven)](https://mvnrepository.com/artifact/io.github.russwyte/sbt-marklit)
+[![Maven Repository](https://img.shields.io/maven-central/v/rocks.earlyeffect/sbt-marklit_sbt2_3?logo=apachemaven)](https://mvnrepository.com/artifact/rocks.earlyeffect/sbt-marklit)
 
 **Typechecked Scala documentation that actually runs your code — across multiple Scala versions, in the same file.**
 
@@ -13,7 +13,7 @@ If your docs claim something works, marklit makes the build break when it doesn'
 marklit ships as an sbt plugin (sbt 2.0+, published for Scala 3). Add it to `project/plugins.sbt`:
 
 ```scala
-addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.1.0")
+addSbtPlugin("rocks.earlyeffect" % "sbt-marklit" % "0.1.0")
 ```
 
 The plugin is an `AutoPlugin` triggered on every JVM project — no `enablePlugins` needed. It calls marklit's compiler in-process (no subprocess), so the only thing it adds to your build is the plugin dependency. See [Build tool integration](#build-tool-integration) for wiring up a docs project.
@@ -312,7 +312,7 @@ Notes:
 
 ```scala
 // project/plugins.sbt
-addSbtPlugin("io.github.russwyte" % "sbt-marklit" % "0.1.0")
+addSbtPlugin("rocks.earlyeffect" % "sbt-marklit" % "0.1.0")
 ```
 
 ```scala
@@ -346,7 +346,7 @@ A worked multi-version example lives in [examples/sbt/](examples/sbt/).
 
 ```scala
 //| mvnDeps:
-//| - io.github.russwyte::mill-marklit:0.1.0
+//| - rocks.earlyeffect::mill-marklit:0.1.0
 
 import marklit.mill.MarklitModule
 
