@@ -43,7 +43,8 @@ jobs:
       - name: Publish to Maven Central
         env:
           # Select the dedicated CI signing key (build.sbt reads PGP_KEY_HEX).
-          PGP_KEY_HEX: FEDF83887D777EC053C0B0BC79C4122F7D97ADEC
+          # Shared early-effect org secret — rotate the key here, not in build.sbt.
+          PGP_KEY_HEX: ${{ secrets.PGP_KEY_HEX }}
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           # sbt 1.11 auto-appends a central.sonatype.com credential from these.
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}

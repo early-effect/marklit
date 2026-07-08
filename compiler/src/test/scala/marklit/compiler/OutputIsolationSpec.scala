@@ -258,7 +258,7 @@ object OutputIsolationSpec extends ZIOSpecDefault:
       }
     )
     // TODO: ZIO service pattern tests require external dependency support
-    // See: https://github.com/russwyte/marklit/issues/XX - add classpath config for CLI and plugins
+    // See: https://github.com/early-effect/marklit/issues/XX - add classpath config for CLI and plugins
   ).provideShared(
     TestCompilerLayer.layer
   ) @@ TestAspect.sequential

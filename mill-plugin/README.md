@@ -1,6 +1,6 @@
 # Mill Marklit Plugin
 
-A Mill plugin for [marklit](https://github.com/russwyte/marklit) - typechecked Scala documentation.
+A Mill plugin for [marklit](https://github.com/early-effect/marklit) - typechecked Scala documentation.
 
 > **Not yet published.** Build and publish it locally first (see
 > [Building from Source](#building-from-source)), then depend on the local
@@ -14,7 +14,7 @@ Declare the plugin in your `build.mill` header:
 
 ```scala
 //| mvnDeps:
-//| - io.github.russwyte::mill-marklit:0.1.0
+//| - rocks.earlyeffect::mill-marklit:0.1.0
 
 import marklit.mill.MarklitModule
 ```
@@ -25,7 +25,7 @@ Mix `MarklitModule` into your module:
 
 ```scala
 //| mvnDeps:
-//| - io.github.russwyte::mill-marklit:0.1.0
+//| - rocks.earlyeffect::mill-marklit:0.1.0
 
 import mill._
 import mill.scalalib._
