@@ -60,6 +60,15 @@ ThisBuild / publishTo := {
 // off-CI. Rotating the key is a one-place change to the PGP_KEY_HEX org secret.
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
+// zipx: Aggregate verify + Central publish (ordered release alias) + Scala Steward.
+zipxJavaVersion  := "25"
+zipxTestTask     := "test"
+zipxScalaSteward := true
+zipxCapabilities += Capability.once("fmt", "scalafmtCheckAll")
+zipxCapabilities += Capability.test.copy(needsCapabilities = List("fmt"))
+// Ordered publish: compilerApi → core → compiler → plugin, then sonaRelease.
+zipxCapabilities += ZipxCentral.release.copy(command = _ => "release")
+
 // Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
 // fileConverter must be read inside each Def.task — `.value` is a macro that
 // only expands in a task/setting scope — but the conversion + copy lives here.
