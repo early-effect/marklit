@@ -16,7 +16,7 @@ val shimScalaVersion = "3.3.7"
 val shim2ScalaVersion = "2.13.16"
 
 val zioVersion = "2.1.26"
-val coursierInterfaceVersion = "1.0.9"
+val coursierInterfaceVersion = "1.0.28"
 
 ThisBuild / scalaVersion := marklitScalaVersion
 ThisBuild / organization := "rocks.earlyeffect"
@@ -61,8 +61,8 @@ ThisBuild / publishTo := {
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
 // zipx: Aggregate verify + Central publish (ordered release alias) + Scala Steward.
-zipxJavaVersion  := "25"
-zipxTestTask     := "test"
+zipxJavaVersion := "25"
+zipxTestTask := "test"
 zipxScalaSteward := true
 zipxCapabilities += Capability.once("fmt", "scalafmtCheckAll")
 zipxCapabilities += Capability.test.copy(needsCapabilities = List("fmt"))
