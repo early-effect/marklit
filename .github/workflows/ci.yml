@@ -59,10 +59,11 @@ jobs:
             ~/.cache/sbt
             ~/.cache/coursier
             target
-          key: ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-test
+          key: ubuntu-latest-jdk25-sbt-0.1.0-ci-${{ github.run_id }}-test
           restore-keys: |
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-
+            ubuntu-latest-jdk25-sbt-0.1.0-ci-${{ github.run_id }}-
+            ubuntu-latest-jdk25-sbt-0.1.0-ci-
+            ubuntu-latest-jdk25-sbt-0.1.0-
             ubuntu-latest-jdk25-sbt-
       - name: test
         run: sbt 'test'
@@ -92,10 +93,11 @@ jobs:
             ~/.cache/sbt
             ~/.cache/coursier
             target
-          key: ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-fmt
+          key: ubuntu-latest-jdk25-sbt-0.1.0-ci-${{ github.run_id }}-fmt
           restore-keys: |
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-
+            ubuntu-latest-jdk25-sbt-0.1.0-ci-${{ github.run_id }}-
+            ubuntu-latest-jdk25-sbt-0.1.0-ci-
+            ubuntu-latest-jdk25-sbt-0.1.0-
             ubuntu-latest-jdk25-sbt-
       - name: fmt
         run: sbt 'scalafmtCheckAll'
@@ -128,10 +130,11 @@ jobs:
             ~/.cache/sbt
             ~/.cache/coursier
             target
-          key: ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-publish
+          key: ubuntu-latest-jdk25-sbt-0.1.0-ci-${{ github.run_id }}-publish
           restore-keys: |
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-
+            ubuntu-latest-jdk25-sbt-0.1.0-ci-${{ github.run_id }}-
+            ubuntu-latest-jdk25-sbt-0.1.0-ci-
+            ubuntu-latest-jdk25-sbt-0.1.0-
             ubuntu-latest-jdk25-sbt-
       - name: Import signing key
         run: |
