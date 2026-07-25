@@ -8,7 +8,7 @@ val marklitScalaVersion = "3.8.4"
 // supported 3.x to keep the shim's dotc API surface compatible at runtime
 // against any user-requested 3.x compiler. Bump only when we drop support
 // for a 3.x line.
-val shimScalaVersion = "3.3.7"
+val shimScalaVersion = "3.3.8"
 
 // Scala version the 2.13 compiler shim is built against. The 2.13 nsc API
 // is stable, so we pin to the latest patch. User-requested 2.13.x version
@@ -61,8 +61,8 @@ ThisBuild / publishTo := {
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
 // zipx: Aggregate verify + Central publish (ordered release alias) + Scala Steward.
-zipxJavaVersion  := "25"
-zipxTestTask     := "test"
+zipxJavaVersion := "25"
+zipxTestTask := "test"
 zipxScalaSteward := true
 zipxCapabilities += Capability.once("fmt", "scalafmtCheckAll")
 zipxCapabilities += Capability.test.copy(needsCapabilities = List("fmt"))
