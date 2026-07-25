@@ -61,8 +61,8 @@ ThisBuild / publishTo := {
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
 // zipx: Aggregate verify + Central publish (ordered release alias) + Scala Steward.
-zipxJavaVersion  := "25"
-zipxTestTask     := "test"
+zipxJavaVersion := "25"
+zipxTestTask := "test"
 zipxScalaSteward := true
 zipxCapabilities += Capability.once("fmt", "scalafmtCheckAll")
 zipxCapabilities += Capability.test.copy(needsCapabilities = List("fmt"))

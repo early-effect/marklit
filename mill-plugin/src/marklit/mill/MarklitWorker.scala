@@ -6,16 +6,17 @@ import zio.{Exit, Runtime, Scope, Unsafe}
 
 /** Holds a single warm [[CompilerFactory]] + ZIO runtime for the life of the
   * Mill build server. This is the in-process replacement for the old marklit
-  * daemon: `CompilerFactory.layer` extracts the shim jars and caches per-version
-  * classloaders, so keeping one instance alive across `marklitGenerate` /
-  * `marklitCheck` invocations keeps compilers warm.
+  * daemon: `CompilerFactory.layer` extracts the shim jars and caches
+  * per-version classloaders, so keeping one instance alive across
+  * `marklitGenerate` / `marklitCheck` invocations keeps compilers warm.
   *
-  * Mill caches this via a `Task.Worker`; when the worker is displaced Mill calls
-  * [[close]], which releases the factory's scope (temp shim jars, classloaders).
+  * Mill caches this via a `Task.Worker`; when the worker is displaced Mill
+  * calls [[close]], which releases the factory's scope (temp shim jars,
+  * classloaders).
   *
   * Execution is serialized on a single monitor because
-  * [[marklit.compiler.ScalaCompiler]] redirects `System.out`/`System.err` at the
-  * JVM level while a block runs — unsafe under concurrent Mill tasks.
+  * [[marklit.compiler.ScalaCompiler]] redirects `System.out`/`System.err` at
+  * the JVM level while a block runs — unsafe under concurrent Mill tasks.
   */
 class MarklitWorker extends AutoCloseable {
 
