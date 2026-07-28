@@ -13,7 +13,7 @@ val shimScalaVersion = "3.3.7"
 // Scala version the 2.13 compiler shim is built against. The 2.13 nsc API
 // is stable, so we pin to the latest patch. User-requested 2.13.x version
 // is still resolved fresh per-block via Coursier.
-val shim2ScalaVersion = "2.13.16"
+val shim2ScalaVersion = "2.13.18"
 
 val zioVersion = "2.1.26"
 val coursierInterfaceVersion = "1.0.9"
@@ -61,8 +61,8 @@ ThisBuild / publishTo := {
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
 // zipx: Aggregate verify + Central publish (ordered release alias) + Scala Steward.
-zipxJavaVersion  := "25"
-zipxTestTask     := "test"
+zipxJavaVersion := "25"
+zipxTestTask := "test"
 zipxScalaSteward := true
 zipxCapabilities += Capability.once("fmt", "scalafmtCheckAll")
 zipxCapabilities += Capability.test.copy(needsCapabilities = List("fmt"))
