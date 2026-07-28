@@ -89,7 +89,7 @@ lazy val publishSettings = Seq(
   pomIncludeRepository := { _ => false }
 )
 
-ThisBuild / scalacOptions ++= Seq(
+ThisBuild / scalacOptions := Seq(
   "-deprecation",
   "-feature",
   "-Wunused:all"
