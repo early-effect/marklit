@@ -7,6 +7,9 @@ name: CI
     tags:
       - v[0-9]+.[0-9]+.[0-9]+
   pull_request: null
+concurrency:
+  group: CI-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   verify-gate:
     name: verify-gate
@@ -43,14 +46,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: "0"
+          fetch-tags: "true"
       - name: Setup JDK 25
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: temurin
           java-version: "25"
-      - uses: sbt/setup-sbt@6444f4c8111de4b9059c3975def104b03cfaa5f0 # v1.5.2
+      - uses: sbt/setup-sbt@d059c39de700f4cc5cb64f9f56577315e44a984e # v1.5.5
         with:
           disk-cache: "false"
+      - name: Resolve cache epoch
+        id: cache-epoch
+        run: |
+          set -euo pipefail
+          tag_match='v*'
+          if git remote get-url origin >/dev/null 2>&1; then
+            remote_count=$(git ls-remote --tags --refs origin "$tag_match" 2>/dev/null | wc -l | tr -d ' ')
+            local_count=$(git tag -l "$tag_match" | wc -l | tr -d ' ')
+            if [ "$remote_count" -gt 0 ] && [ "$local_count" -lt "$remote_count" ]; then
+              echo "::warning title=zipx cache epoch::Local tags ($local_count) fewer than origin ($remote_count). Epoch may be stale; checkout must use fetch-depth: 0 and fetch-tags: true."
+            fi
+          fi
+          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+            release="${GITHUB_REF#refs/tags/v}"
+            epoch="$release"
+          elif tag=$(git describe --tags --abbrev=0 --match "$tag_match" 2>/dev/null); then
+            release="${tag#v}"
+            epoch="${release}-ci"
+          else
+            echo "::warning title=zipx cache epoch::No tags matching '$tag_match' found; using epoch 0.0.0."
+            release="0.0.0"
+            epoch="0.0.0"
+          fi
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
       - name: Cache sbt
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -59,10 +89,11 @@ jobs:
             ~/.cache/sbt
             ~/.cache/coursier
             target
-          key: ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-test
+          key: ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-${{ github.run_id }}-test
           restore-keys: |
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-${{ github.run_id }}-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.release }}-
             ubuntu-latest-jdk25-sbt-
       - name: test
         run: sbt 'test'
@@ -76,14 +107,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: "0"
+          fetch-tags: "true"
       - name: Setup JDK 25
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: temurin
           java-version: "25"
-      - uses: sbt/setup-sbt@6444f4c8111de4b9059c3975def104b03cfaa5f0 # v1.5.2
+      - uses: sbt/setup-sbt@d059c39de700f4cc5cb64f9f56577315e44a984e # v1.5.5
         with:
           disk-cache: "false"
+      - name: Resolve cache epoch
+        id: cache-epoch
+        run: |
+          set -euo pipefail
+          tag_match='v*'
+          if git remote get-url origin >/dev/null 2>&1; then
+            remote_count=$(git ls-remote --tags --refs origin "$tag_match" 2>/dev/null | wc -l | tr -d ' ')
+            local_count=$(git tag -l "$tag_match" | wc -l | tr -d ' ')
+            if [ "$remote_count" -gt 0 ] && [ "$local_count" -lt "$remote_count" ]; then
+              echo "::warning title=zipx cache epoch::Local tags ($local_count) fewer than origin ($remote_count). Epoch may be stale; checkout must use fetch-depth: 0 and fetch-tags: true."
+            fi
+          fi
+          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+            release="${GITHUB_REF#refs/tags/v}"
+            epoch="$release"
+          elif tag=$(git describe --tags --abbrev=0 --match "$tag_match" 2>/dev/null); then
+            release="${tag#v}"
+            epoch="${release}-ci"
+          else
+            echo "::warning title=zipx cache epoch::No tags matching '$tag_match' found; using epoch 0.0.0."
+            release="0.0.0"
+            epoch="0.0.0"
+          fi
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
       - name: Cache sbt
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -92,10 +150,11 @@ jobs:
             ~/.cache/sbt
             ~/.cache/coursier
             target
-          key: ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-fmt
+          key: ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-${{ github.run_id }}-fmt
           restore-keys: |
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-${{ github.run_id }}-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.release }}-
             ubuntu-latest-jdk25-sbt-
       - name: fmt
         run: sbt 'scalafmtCheckAll'
@@ -112,14 +171,41 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: "0"
+          fetch-tags: "true"
       - name: Setup JDK 25
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: temurin
           java-version: "25"
-      - uses: sbt/setup-sbt@6444f4c8111de4b9059c3975def104b03cfaa5f0 # v1.5.2
+      - uses: sbt/setup-sbt@d059c39de700f4cc5cb64f9f56577315e44a984e # v1.5.5
         with:
           disk-cache: "false"
+      - name: Resolve cache epoch
+        id: cache-epoch
+        run: |
+          set -euo pipefail
+          tag_match='v*'
+          if git remote get-url origin >/dev/null 2>&1; then
+            remote_count=$(git ls-remote --tags --refs origin "$tag_match" 2>/dev/null | wc -l | tr -d ' ')
+            local_count=$(git tag -l "$tag_match" | wc -l | tr -d ' ')
+            if [ "$remote_count" -gt 0 ] && [ "$local_count" -lt "$remote_count" ]; then
+              echo "::warning title=zipx cache epoch::Local tags ($local_count) fewer than origin ($remote_count). Epoch may be stale; checkout must use fetch-depth: 0 and fetch-tags: true."
+            fi
+          fi
+          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
+            release="${GITHUB_REF#refs/tags/v}"
+            epoch="$release"
+          elif tag=$(git describe --tags --abbrev=0 --match "$tag_match" 2>/dev/null); then
+            release="${tag#v}"
+            epoch="${release}-ci"
+          else
+            echo "::warning title=zipx cache epoch::No tags matching '$tag_match' found; using epoch 0.0.0."
+            release="0.0.0"
+            epoch="0.0.0"
+          fi
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
       - name: Cache sbt
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -128,10 +214,11 @@ jobs:
             ~/.cache/sbt
             ~/.cache/coursier
             target
-          key: ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-publish
+          key: ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-${{ github.run_id }}-publish
           restore-keys: |
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-${{ github.run_id }}-
-            ubuntu-latest-jdk25-sbt-0.1.0+1-cf0f6ece+20260724-1335-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-${{ github.run_id }}-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.epoch }}-
+            ubuntu-latest-jdk25-sbt-${{ steps.cache-epoch.outputs.release }}-
             ubuntu-latest-jdk25-sbt-
       - name: Import signing key
         run: |
