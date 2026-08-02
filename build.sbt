@@ -13,7 +13,7 @@ val shimScalaVersion = "3.3.8"
 // Scala version the 2.13 compiler shim is built against. The 2.13 nsc API
 // is stable, so we pin to the latest patch. User-requested 2.13.x version
 // is still resolved fresh per-block via Coursier.
-val shim2ScalaVersion = "2.13.16"
+val shim2ScalaVersion = "2.13.18"
 
 val zioVersion = "2.1.26"
 val coursierInterfaceVersion = "1.0.9"
@@ -89,7 +89,7 @@ lazy val publishSettings = Seq(
   pomIncludeRepository := { _ => false }
 )
 
-ThisBuild / scalacOptions ++= Seq(
+ThisBuild / scalacOptions := Seq(
   "-deprecation",
   "-feature",
   "-Wunused:all"
