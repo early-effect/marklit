@@ -221,7 +221,7 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % zioVersion,
       "dev.zio" %% "zio-streams" % zioVersion,
-      "dev.zio" %% "zio-json" % "0.9.2",
+      "dev.zio" %% "zio-json" % "0.10.0",
       "com.lihaoyi" %% "fastparse" % "3.1.1",
       // Coursier for dependency resolution
       "io.get-coursier" % "interface" % coursierInterfaceVersion,
@@ -245,7 +245,7 @@ lazy val compiler = project
       "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
 
       // JSON parsing
-      "dev.zio" %% "zio-json" % "0.9.2"
+      "dev.zio" %% "zio-json" % "0.10.0"
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     // Both shim jars are bundled as Compile resources so they ride inside the
