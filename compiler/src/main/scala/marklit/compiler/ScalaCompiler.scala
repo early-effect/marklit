@@ -107,7 +107,9 @@ final class ScalaCompiler(
 
           Files.writeString(sourceFile, sourceCode)
 
-          val effectiveClasspath = (classpath ++ context.classpath).toList
+          // Remap sbt 2.0.4 CAS jars (no .jar suffix) so scalac/dotc see them.
+          val effectiveClasspath =
+            ClasspathEntries.forScalac(classpath ++ context.classpath).toList
           val effectiveOpts =
             (scalacOptions ++ context.scalacOptions).toList
           val request = new CompileRequest(
