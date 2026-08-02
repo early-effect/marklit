@@ -21,7 +21,9 @@ trait CoreModule extends CrossSbtModule {
     moduleDir / os.up / os.up / "base" / "core"
   override def sources: T[Seq[PathRef]] = Task.Sources(
     Seq(sharedRoot / "src" / "main" / "scala") ++
-      scalaVersionDirectoryNames.map(s => sharedRoot / "src" / "main" / s"scala-$s")*
+      scalaVersionDirectoryNames.map(s =>
+        sharedRoot / "src" / "main" / s"scala-$s"
+      )*
   )
 }
 

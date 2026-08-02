@@ -57,10 +57,10 @@ trait MarklitModule extends ScalaModule {
 
   /** FQN of a build-provided run resource: a class on the docs' compile
     * classpath implementing `java.util.function.Supplier[AutoCloseable]`. Its
-    * `get()` runs once before any doc is processed (start a DB container, create
-    * a schema, …) and the returned `AutoCloseable.close()` once after the last
-    * doc, even on failure. With a resource set, all blocks share one instance
-    * for the run. Defaults to `None` (disabled).
+    * `get()` runs once before any doc is processed (start a DB container,
+    * create a schema, …) and the returned `AutoCloseable.close()` once after
+    * the last doc, even on failure. With a resource set, all blocks share one
+    * instance for the run. Defaults to `None` (disabled).
     */
   def marklitRunResourceClass: T[Option[String]] = None
 
@@ -132,8 +132,8 @@ trait MarklitModule extends ScalaModule {
       .toMap
   }
 
-  /** Persistent on-disk compile cache directory. Defaults to a dedicated
-    * worker dest under Mill's `out/`, so it survives across `marklitGenerate` /
+  /** Persistent on-disk compile cache directory. Defaults to a dedicated worker
+    * dest under Mill's `out/`, so it survives across `marklitGenerate` /
     * `marklitCheck` invocations within and across Mill server lifetimes. Set to
     * `None` to disable caching entirely.
     */
