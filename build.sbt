@@ -44,6 +44,11 @@ ThisBuild / developers := List(
 )
 ThisBuild / versionScheme := Some("early-semver")
 
+// zio-cli 0.8.1 still pins zio-json 0.9.2 while we resolve 0.10.0. Under early-semver a 0.9 -> 0.10
+// bump reads as breaking, so sbt 2.x's strict eviction check fails the build. The codec API zio-cli
+// uses is unchanged across the bump, so force 0.10.0 rather than hold zio-json back.
+ThisBuild / libraryDependencySchemes += "dev.zio" %% "zio-json" % "always"
+
 // Publishing to Sonatype's Central Portal. sbt 1.11+ has built-in support via
 // `localStaging` / `publishSigned` / `sonaRelease` — no sbt-sonatype plugin needed.
 ThisBuild / publishTo := {
