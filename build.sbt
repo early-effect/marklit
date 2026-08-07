@@ -66,13 +66,16 @@ ThisBuild / publishTo := {
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
 // zipx: Aggregate verify + Central publish (ordered release alias) + Scala Steward.
-zipxJavaVersion := "25"
+val Fmt = CapabilityName("fmt")
+
+zipxJavaVersion := JdkVersion("25")
 zipxTestTask := "test"
 zipxScalaSteward := true
-zipxCapabilities += Capability.once("fmt", "scalafmtCheckAll")
-zipxCapabilities += Capability.test.copy(needsCapabilities = List("fmt"))
+zipxCapabilities += zipxTasks.once(Fmt, scalafmtCheckAll)
+zipxCapabilities += Capability.test.copy(needsCapabilities = List(Fmt))
 // Ordered publish: compilerApi → core → compiler → plugin, then sonaRelease.
-zipxCapabilities += ZipxCentral.release.copy(command = _ => "release")
+// A command alias, not a task key, so it stays a literal SbtCommand.
+zipxCapabilities += ZipxCentral.release.copy(command = _ => SbtCommand("release"))
 
 // Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
 // fileConverter must be read inside each Def.task — `.value` is a macro that
