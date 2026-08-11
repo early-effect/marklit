@@ -75,7 +75,7 @@ zipxCapabilities += zipxTasks.once(Fmt, scalafmtCheckAll)
 zipxCapabilities += Capability.test.copy(needsCapabilities = List(Fmt))
 // Ordered publish: compilerApi → core → compiler → plugin, then sonaRelease.
 // A command alias, not a task key, so it stays a literal SbtCommand.
-zipxCapabilities += ZipxCentral.release.copy(command = _ => SbtCommand("release"))
+zipxCapabilities += ZipxCentral.release.copy(command = _ => Some(SbtCommand("release")))
 
 // Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
 // fileConverter must be read inside each Def.task — `.value` is a macro that

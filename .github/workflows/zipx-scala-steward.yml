@@ -15,6 +15,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Scala Steward
-        uses: scala-steward-org/scala-steward-action@41bd88543dcf5e5455689f04d041b095eb901660 # v2.93.0
+        uses: scala-steward-org/scala-steward-action@6162b21b93d4be314a61ce0462fd026630132fee # v2.96.0
         with:
           repo-config: .github/.scala-steward.conf
