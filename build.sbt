@@ -75,7 +75,9 @@ zipxCapabilities += zipxTasks.once(Fmt, scalafmtCheckAll)
 zipxCapabilities += Capability.test.copy(needsCapabilities = List(Fmt))
 // Ordered publish: compilerApi → core → compiler → plugin, then sonaRelease.
 // A command alias, not a task key, so it stays a literal SbtCommand.
-zipxCapabilities += ZipxCentral.release.copy(command = _ => Some(SbtCommand("release")))
+zipxCapabilities += ZipxCentral.release.copy(command =
+  _ => Some(SbtCommand("release"))
+)
 
 // Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
 // fileConverter must be read inside each Def.task — `.value` is a macro that
@@ -289,7 +291,7 @@ lazy val cli = project
     publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % zioVersion,
-      "dev.zio" %% "zio-cli" % "0.8.1",
+      "dev.zio" %% "zio-cli" % "0.8.2",
       // Coursier for dependency resolution (Java API - works with Scala 3)
       "io.get-coursier" % "interface" % coursierInterfaceVersion,
       // Fastparse for using directive parsing
