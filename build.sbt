@@ -1,24 +1,5 @@
-// Scala version used to compile marklit's own modules (core, compiler, cli,
-// the Mill plugin trait — everything except the shim). Aligned with the Scala
-// 3 version the sbt 2.0 plugin compiles against so the plugin consumes
-// marklit-compiler at an identical version.
-val marklitScalaVersion = "3.8.4"
+MyVersions.settings
 
-// Scala version the compiler-shim is built against. Pinned to the oldest
-// supported 3.x to keep the shim's dotc API surface compatible at runtime
-// against any user-requested 3.x compiler. Bump only when we drop support
-// for a 3.x line.
-val shimScalaVersion = "3.3.8"
-
-// Scala version the 2.13 compiler shim is built against. The 2.13 nsc API
-// is stable, so we pin to the latest patch. User-requested 2.13.x version
-// is still resolved fresh per-block via Coursier.
-val shim2ScalaVersion = "2.13.18"
-
-val zioVersion = "2.1.26"
-val coursierInterfaceVersion = "1.0.9"
-
-ThisBuild / scalaVersion := marklitScalaVersion
 ThisBuild / organization := "rocks.earlyeffect"
 // version is derived from git tags by sbt-dynver (tag v0.1.0 -> 0.1.0).
 
@@ -50,7 +31,7 @@ ThisBuild / versionScheme := Some("early-semver")
 ThisBuild / libraryDependencySchemes += "dev.zio" %% "zio-json" % "always"
 
 // Publishing to Sonatype's Central Portal. sbt 1.11+ has built-in support via
-// `localStaging` / `publishSigned` / `sonaRelease` — no sbt-sonatype plugin needed.
+// `localStaging` / `publishSigned` / `sonaRelease`; no sbt-sonatype plugin needed.
 ThisBuild / publishTo := {
   val centralSnapshots =
     "https://central.sonatype.com/repository/maven-snapshots/"
@@ -60,26 +41,24 @@ ThisBuild / publishTo := {
 
 // CI-only publishing: the signing key hex comes from the PGP_KEY_HEX env var, set
 // by the shared early-effect org secret in the release workflow. There is no real
-// key in this file — the "MISSING_KEY_HEX" sentinel keeps the build loadable for
+// key in this file: the "MISSING_KEY_HEX" sentinel keeps the build loadable for
 // local compile/test but makes signing fail loudly if anyone tries to publish
 // off-CI. Rotating the key is a one-place change to the PGP_KEY_HEX org secret.
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
-// zipx: Aggregate verify + Central publish (ordered release alias) + Scala Steward.
-val Fmt = CapabilityName("fmt")
-
+// zipx: Aggregate verify (builtin testFull) + Central publish (ordered release alias) + catalog PRs.
 zipxJavaVersion := JdkVersion("25")
-zipxTestTask := "test"
-zipxScalaSteward := true
-zipxCapabilities += zipxTasks.once(Fmt, scalafmtCheckAll)
-zipxCapabilities += Capability.test.copy(needsCapabilities = List(Fmt))
-// Ordered publish: compilerApi → core → compiler → plugin, then sonaRelease.
-// A command alias, not a task key, so it stays a literal SbtCommand.
-zipxCapabilities += ZipxCentral.release.copy(command = _ => Some(SbtCommand("release")))
+// Ordered publish: compilerApi → core → compiler → plugin/clean → plugin, then sonaRelease.
+// That `plugin/clean` is why this is the `release` alias, not ZipxCentral.release's default
+// per-module publishSigned + sonaRelease. Aggregate would join `release` once per publisher;
+// releaseRoot is the Once job. `addCommandAlias` is not a TaskKey; SbtCommand.raw is the hatch.
+zipxCapabilities += ZipxCentral.releaseRoot.running(
+  SbtCommand.raw("release").fold(msg => sys.error(s"zipx: $msg"), identity)
+)
 
 // Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
-// fileConverter must be read inside each Def.task — `.value` is a macro that
-// only expands in a task/setting scope — but the conversion + copy lives here.
+// fileConverter must be read inside each Def.task (`.value` is a macro that
+// only expands in a task/setting scope), but the conversion + copy lives here.
 def copyJarResource(
     converter: xsbti.FileConverter,
     jar: xsbti.HashedVirtualFileRef,
@@ -131,10 +110,7 @@ lazy val compilerApi = project
     crossPaths := false,
     autoScalaLibrary := false,
     Compile / doc / sources := Seq.empty,
-    libraryDependencies ++= Seq(
-      "junit" % "junit" % "4.13.2" % Test,
-      "com.github.sbt" % "junit-interface" % "0.13.3" % Test
-    ),
+    MyVersions.junitTests,
     testOptions += Tests.Argument(TestFrameworks.JUnit, "-v")
   )
 
@@ -152,34 +128,31 @@ lazy val compilerShim = project
   .settings(
     name := "marklit-compiler-shim",
     publish / skip := true,
-    scalaVersion := shimScalaVersion,
-    libraryDependencies ++= Seq(
-      "org.scala-lang" %% "scala3-compiler" % shimScalaVersion % Provided,
-      "dev.zio" %% "zio-test" % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
-      // Coursier (Test only) so the shim test can resolve scala3-library
-      // independently of the sbt classpath.
-      "io.get-coursier" % "interface" % coursierInterfaceVersion % Test
-    ),
+    // Oldest supported 3.x: keep the shim's dotc API surface compatible at runtime
+    // against any user-requested 3.x compiler. Bump only when we drop a 3.x line.
+    scalaVersion := MyVersions.shimScala,
+    MyVersions.shimTests,
+    libraryDependencies += MyVersions
+      .moduleID(MyVersions.scala3Compiler) % Provided,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     // Embed the shim's compile-time scala3 version as a plain text resource
     // so CompilerFactory.defaultScalaVersion can read it WITHOUT loading any
     // shim classes (which would transitively need scala3-compiler on the
-    // classpath — defeating the whole point of the per-version classloader).
+    // classpath, defeating the whole point of the per-version classloader).
     Compile / resourceGenerators += Def.task {
       val target =
         (Compile / resourceManaged).value / "marklit-shim-version.txt"
-      IO.write(target, shimScalaVersion)
+      IO.write(target, MyVersions.shimScala: String)
       Seq(target)
     }.taskValue
   )
 
-// The shim jar is a thin jar (compiled classes only — `scala3-compiler` is
+// The shim jar is a thin jar (compiled classes only; `scala3-compiler` is
 // Provided, and `compiler-api` is loaded via its own classloader at runtime).
 // We package only the shim's own compile output, not its transitive deps.
 
 // The 2.13 sibling of `compilerShim`. Imports `scala.tools.nsc.*` (the
-// classic Scala compiler), compiled against `shim2ScalaVersion`. The
+// classic Scala compiler), compiled against `MyVersions.shim2Scala`. The
 // orchestrator picks this shim when a block requests `scala=2.x.y` or
 // `scala=2`, mirroring the dotc shim path on the 3.x side.
 lazy val compilerShim2 = project
@@ -188,20 +161,19 @@ lazy val compilerShim2 = project
   .settings(
     name := "marklit-compiler-shim-2",
     publish / skip := true,
-    scalaVersion := shim2ScalaVersion,
-    // Match shim's "extra" warnings off — the 2.13 nsc API has long-
+    scalaVersion := MyVersions.shim2Scala,
+    // Match shim's "extra" warnings off: the 2.13 nsc API has long-
     // deprecated members we touch through StoreReporter; suppress noise.
     scalacOptions := Seq("-deprecation", "-feature"),
-    libraryDependencies ++= Seq(
-      "org.scala-lang" % "scala-compiler" % shim2ScalaVersion % Provided
-    ),
+    libraryDependencies += MyVersions
+      .moduleID(MyVersions.scalaCompiler) % Provided,
     // Embed the 2.13 shim's compile-time scala version so the orchestrator
     // can read it without touching shim classes (which would require
     // scala-compiler on the probe classpath).
     Compile / resourceGenerators += Def.task {
       val target =
         (Compile / resourceManaged).value / "marklit-shim-2-version.txt"
-      IO.write(target, shim2ScalaVersion)
+      IO.write(target, MyVersions.shim2Scala: String)
       Seq(target)
     }.taskValue
   )
@@ -226,16 +198,8 @@ lazy val core = project
   .settings(publishSettings)
   .settings(
     name := "marklit-core",
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % zioVersion,
-      "dev.zio" %% "zio-streams" % zioVersion,
-      "dev.zio" %% "zio-json" % "0.10.0",
-      "com.lihaoyi" %% "fastparse" % "3.1.1",
-      // Coursier for dependency resolution
-      "io.get-coursier" % "interface" % coursierInterfaceVersion,
-      "dev.zio" %% "zio-test" % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
-    ),
+    MyVersions.coreLib,
+    MyVersions.zioTests,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
   )
 
@@ -245,20 +209,12 @@ lazy val compiler = project
   .settings(publishSettings)
   .settings(
     name := "marklit-compiler",
-    libraryDependencies ++= Seq(
-      // ZIO
-      "dev.zio" %% "zio" % zioVersion,
-      "dev.zio" %% "zio-streams" % zioVersion,
-      "dev.zio" %% "zio-test" % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test,
-
-      // JSON parsing
-      "dev.zio" %% "zio-json" % "0.10.0"
-    ),
+    MyVersions.compilerLib,
+    MyVersions.zioTests,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     // Both shim jars are bundled as Compile resources so they ride inside the
     // published marklit-compiler jar. CompilerFactory.copyResource reads them
-    // via getClass.getResourceAsStream at runtime — so any consumer of
+    // via getClass.getResourceAsStream at runtime, so any consumer of
     // marklit-compiler (the CLI fat jar, the sbt/Mill plugins in-process) finds
     // them on its classpath without a separate published shim artifact. The
     // compiler's own tests inherit Compile resources, so CompilerFactory tests
@@ -287,16 +243,8 @@ lazy val cli = project
   .settings(
     name := "marklit-cli",
     publish / skip := true,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % zioVersion,
-      "dev.zio" %% "zio-cli" % "0.8.1",
-      // Coursier for dependency resolution (Java API - works with Scala 3)
-      "io.get-coursier" % "interface" % coursierInterfaceVersion,
-      // Fastparse for using directive parsing
-      "com.lihaoyi" %% "fastparse" % "3.1.1",
-      "dev.zio" %% "zio-test" % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
-    ),
+    MyVersions.cliLib,
+    MyVersions.zioTests,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     // The two compiler-shim jars are bundled as Compile resources of
     // marklit-compiler now, so they arrive here transitively via
@@ -336,12 +284,10 @@ lazy val plugin = project
   .settings(
     name := "sbt-marklit",
     // sbt 2.0 plugins compile against Scala 3 and publish with the _sbt2_3
-    // suffix. The plugin calls marklit-compiler in-process, so it depends on it
-    // as an ordinary library (dependsOn here for local dev; the published POM
-    // records the libraryDependency below for downstream resolution).
-    scalaVersion := marklitScalaVersion,
-    libraryDependencies +=
-      "rocks.earlyeffect" %% "marklit-compiler" % version.value,
+    // suffix. dependsOn(compiler) puts marklit-compiler on the plugin classpath
+    // and in the published POM. Do not also declare it as marklit-compiler %
+    // version.value: zipxCheckDeps would treat that GAV as an undeclared catalog
+    // row, and the version is this project, not a Maven pin.
     scalacOptions := Seq("-deprecation", "-feature"),
     // Scripted tests: publish this plugin + its libs to the local repo first,
     // and pass the version through so each test's project/plugins.sbt can
