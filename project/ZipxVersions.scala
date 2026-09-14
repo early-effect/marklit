@@ -6,8 +6,8 @@ import zipx.*
   * sbt-pgp is not a row: zipx already brings it in.
   */
 object MyVersions extends ZipxVersions:
-  val sbt: SbtVersion = SbtVersion("2.0.7")
-  val scala: ScalaVersion = ScalaVersion("3.8.4")
+  val sbt: SbtVersion = SbtVersion("2.1.0-M1")
+  val scala: ScalaVersion = ScalaVersion("3.9.0")
 
   /** Oldest supported 3.x for the dotc shim. Not a catalog row. */
   val shimScala: ScalaVersion = ScalaVersion("3.3.8")
@@ -19,7 +19,7 @@ object MyVersions extends ZipxVersions:
   val zioStreams = zio.mod("zio-streams")
   val zioTest = zio.mod("zio-test")
   val zioTestSbt = zio.mod("zio-test-sbt")
-  val zioJson = Lib("dev.zio", "zio-json", "1.0.0")
+  val zioJson = Lib("dev.zio", "zio-json", "1.1.0")
   val zioCli = Lib("dev.zio", "zio-cli", "0.8.2")
 
   val fastparse = Lib("com.lihaoyi", "fastparse", "3.1.1")
