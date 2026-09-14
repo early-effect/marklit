@@ -19,7 +19,7 @@ object MyVersions extends ZipxVersions:
   val zioStreams = zio.mod("zio-streams")
   val zioTest = zio.mod("zio-test")
   val zioTestSbt = zio.mod("zio-test-sbt")
-  val zioJson = Lib("dev.zio", "zio-json", "1.0.0")
+  val zioJson = Lib("dev.zio", "zio-json", "1.1.0")
   val zioCli = Lib("dev.zio", "zio-cli", "0.8.2")
 
   val fastparse = Lib("com.lihaoyi", "fastparse", "3.1.1")
