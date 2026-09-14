@@ -7,7 +7,7 @@ import mill.scalalib.publish._
 // Scala version used to compile the Mill plugin trait. Aligned with the Scala
 // 3 version marklit's own modules are built against so the plugin consumes
 // marklit-compiler at an identical version.
-def marklitScalaVersion = "3.8.4"
+def marklitScalaVersion = "3.9.0"
 
 // The marklit-compiler version to depend on. For local build + test, publish
 // the libraries to ~/.ivy2/local first:
