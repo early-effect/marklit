@@ -65,7 +65,7 @@ jobs:
           cache-key-suffix: version-updates
           node-version: ""
           sbt-disk-cache: "false"
-          local-cache: "true"
+          cache-mode: restore
           coursier: "true"
       - name: Apply catalog updates
         run: |
