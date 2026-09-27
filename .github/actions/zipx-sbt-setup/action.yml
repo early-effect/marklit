@@ -4,32 +4,32 @@ description: JDK, sbt, optional Node, and LocalDir sbt cache (checkout is a prio
 inputs:
   java-version:
     description: Temurin JDK version
-    required: "true"
+    required: true
   runner-os:
     description: Runner OS label used in the cache key prefix
-    required: "true"
+    required: true
   cache-key-suffix:
-    description: Per-job suffix so same-run jobs do not race on one cache key
-    required: "true"
+    description: Per-job suffix so same-run saves (one per Layer wave) do not race on one cache key
+    required: true
   node-version:
     description: Optional Node version; empty skips setup-node
-    required: "false"
+    required: false
     default: ""
   sbt-disk-cache:
     description: Passed to sbt/setup-sbt disk-cache
-    required: "false"
+    required: false
     default: "false"
-  local-cache:
-    description: When true, resolve epoch and restore/save the LocalDir sbt cache
-    required: "false"
-    default: "true"
+  cache-mode:
+    description: "LocalDir sbt cache: save (restore, then save this job's build snapshot), restore (restore only), or off"
+    required: false
+    default: restore
   cache-epoch:
     description: Fixed cache epoch; when non-empty skips git-tag resolve and keys the cache with this value
-    required: "false"
+    required: false
     default: ""
   coursier:
     description: When true, install cs via coursier/setup-action so the job can launch zipx-cli
-    required: "false"
+    required: false
     default: "false"
 runs:
   using: composite
@@ -54,7 +54,7 @@ runs:
         node-version: ${{ inputs.node-version }}
     - name: Resolve cache epoch
       id: cache-epoch
-      if: inputs.local-cache == 'true' && inputs.cache-epoch == ''
+      if: inputs.cache-mode != 'off' && inputs.cache-epoch == ''
       run: |
         set -euo pipefail
         tag_match='v*'
@@ -81,7 +81,7 @@ runs:
 
       shell: bash
     - name: Cache sbt
-      if: inputs.local-cache == 'true' && inputs.cache-epoch == ''
+      if: inputs.cache-mode == 'save' && inputs.cache-epoch == ''
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
@@ -89,14 +89,14 @@ runs:
           ~/.cache/sbt
           ~/.cache/coursier
           target
-        key: ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-${{ github.run_id }}-${{ inputs.cache-key-suffix }}
+        key: ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-build-${{ github.run_id }}-${{ inputs.cache-key-suffix }}
         restore-keys: |
-          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-${{ github.run_id }}-
-          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-
-          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.release }}-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-build-${{ github.run_id }}-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-build-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.release }}-build-
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-
     - name: Cache sbt
-      if: inputs.local-cache == 'true' && inputs.cache-epoch != ''
+      if: inputs.cache-mode == 'save' && inputs.cache-epoch != ''
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
@@ -104,8 +104,37 @@ runs:
           ~/.cache/sbt
           ~/.cache/coursier
           target
-        key: ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-${{ github.run_id }}-${{ inputs.cache-key-suffix }}
+        key: ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-${{ github.run_id }}-${{ inputs.cache-key-suffix }}
         restore-keys: |
-          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-${{ github.run_id }}-
-          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-${{ github.run_id }}-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-
+    - name: Restore sbt cache
+      if: inputs.cache-mode == 'restore' && inputs.cache-epoch == ''
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.sbt
+          ~/.cache/sbt
+          ~/.cache/coursier
+          target
+        key: ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-build-${{ github.run_id }}-${{ inputs.cache-key-suffix }}
+        restore-keys: |
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-build-${{ github.run_id }}-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-build-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.release }}-build-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-
+    - name: Restore sbt cache
+      if: inputs.cache-mode == 'restore' && inputs.cache-epoch != ''
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.sbt
+          ~/.cache/sbt
+          ~/.cache/coursier
+          target
+        key: ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-${{ github.run_id }}-${{ inputs.cache-key-suffix }}
+        restore-keys: |
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-${{ github.run_id }}-
+          ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-
