@@ -9,6 +9,8 @@ object MyVersions extends ZipxVersions:
   val sbt: SbtVersion = SbtVersion("2.1.0-M3")
   val scala: ScalaVersion = ScalaVersion("3.9.0")
 
+  val release = ShipGroup("marklit", "0.1.1")("compilerApi", "core", "compiler", "plugin")
+
   /** Oldest supported 3.x for the dotc shim. Not a catalog row. */
   val shimScala: ScalaVersion = ScalaVersion("3.3.8")
 
@@ -31,7 +33,6 @@ object MyVersions extends ZipxVersions:
 
   val assembly = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
   val scalafmt = Plugin("org.scalameta", "sbt-scalafmt", "2.6.2")
-  val dynver = Plugin("com.github.sbt", "sbt-dynver", "5.1.1")
 
   def junitTests = library(junit.test, junitInterface.test)
   def zioTests = library(zioTest.test, zioTestSbt.test)
