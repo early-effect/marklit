@@ -1,7 +1,6 @@
 MyVersions.settings
 
 ThisBuild / organization := "rocks.earlyeffect"
-// version is derived from git tags by sbt-dynver (tag v0.1.0 -> 0.1.0).
 
 ThisBuild / organizationName := "Early Effect"
 ThisBuild / organizationHomepage := Some(url("https://www.earlyeffect.rocks"))
@@ -52,9 +51,9 @@ zipxJavaVersion := JdkVersion("25")
 // That `plugin/clean` is why this is the `release` alias, not ZipxCentral.release's default
 // per-module publishSigned + sonaRelease. Aggregate would join `release` once per publisher;
 // releaseRoot is the Once job. `addCommandAlias` is not a TaskKey; SbtCommand.raw is the hatch.
-zipxCapabilities += ZipxCentral.releaseRoot.running(
-  SbtCommand.raw("release").fold(msg => sys.error(s"zipx: $msg"), identity)
-)
+zipxCapabilities += ZipxCentral.snapshots
+zipxCapabilities += ZipxCentral.pullRequestSnapshots("snapshots")
+zipxReleaseWorkflow := Some(ZipxCentral.releases)
 
 // Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
 // fileConverter must be read inside each Def.task (`.value` is a macro that
