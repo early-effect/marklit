@@ -25,10 +25,9 @@ object MyVersions extends ZipxVersions:
   val zioCli = Lib("dev.zio", "zio-cli", "0.8.2")
 
   val fastparse = Lib("com.lihaoyi", "fastparse", "3.1.1")
-  val coursierInterface = Lib("io.get-coursier", "interface", "1.0.9").java
+  val coursierInterface = Lib("io.get-coursier", "interface", "1.0.29-M4").java
   val junit = Lib("junit", "junit", "4.13.2").java
   val junitInterface = Lib("com.github.sbt", "junit-interface", "0.13.3").java
-  val scala3Compiler = Lib("org.scala-lang", "scala3-compiler", "3.3.8")
   val scalaCompiler = Lib("org.scala-lang", "scala-compiler", "2.13.18").java
 
   val assembly = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")

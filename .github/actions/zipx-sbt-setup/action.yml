@@ -23,6 +23,10 @@ inputs:
     description: "LocalDir sbt cache: save (restore, then save this job's build snapshot), restore (restore only), or off"
     required: false
     default: restore
+  purge:
+    description: When true, skip LocalDir restore. A save owner still saves a fresh snapshot; a restore job does nothing
+    required: false
+    default: "false"
   cache-epoch:
     description: Fixed cache epoch; when non-empty skips git-tag resolve and keys the cache with this value
     required: false
@@ -54,7 +58,7 @@ runs:
         node-version: ${{ inputs.node-version }}
     - name: Resolve cache epoch
       id: cache-epoch
-      if: inputs.cache-mode != 'off' && inputs.cache-epoch == ''
+      if: inputs.cache-epoch == '' && inputs.cache-mode != 'off' && (inputs.cache-mode == 'save' || inputs.purge != 'true')
       run: |
         set -euo pipefail
         tag_match='v*'
@@ -81,7 +85,7 @@ runs:
 
       shell: bash
     - name: Cache sbt
-      if: inputs.cache-mode == 'save' && inputs.cache-epoch == ''
+      if: inputs.cache-mode == 'save' && inputs.purge != 'true' && inputs.cache-epoch == ''
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
@@ -96,7 +100,7 @@ runs:
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.release }}-build-
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-
     - name: Cache sbt
-      if: inputs.cache-mode == 'save' && inputs.cache-epoch != ''
+      if: inputs.cache-mode == 'save' && inputs.purge != 'true' && inputs.cache-epoch != ''
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
@@ -109,8 +113,28 @@ runs:
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-${{ github.run_id }}-
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-
+    - name: Save sbt cache
+      if: inputs.cache-mode == 'save' && inputs.purge == 'true' && inputs.cache-epoch == ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.sbt
+          ~/.cache/sbt
+          ~/.cache/coursier
+          target
+        key: ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.epoch }}-build-${{ github.run_id }}-${{ inputs.cache-key-suffix }}
+    - name: Save sbt cache
+      if: inputs.cache-mode == 'save' && inputs.purge == 'true' && inputs.cache-epoch != ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.sbt
+          ~/.cache/sbt
+          ~/.cache/coursier
+          target
+        key: ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ inputs.cache-epoch }}-build-${{ github.run_id }}-${{ inputs.cache-key-suffix }}
     - name: Restore sbt cache
-      if: inputs.cache-mode == 'restore' && inputs.cache-epoch == ''
+      if: inputs.cache-mode == 'restore' && inputs.purge != 'true' && inputs.cache-epoch == ''
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
@@ -125,7 +149,7 @@ runs:
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-${{ steps.cache-epoch.outputs.release }}-build-
           ${{ inputs.runner-os }}-jdk${{ inputs.java-version }}-sbt-
     - name: Restore sbt cache
-      if: inputs.cache-mode == 'restore' && inputs.cache-epoch != ''
+      if: inputs.cache-mode == 'restore' && inputs.purge != 'true' && inputs.cache-epoch != ''
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |

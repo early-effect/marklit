@@ -13,6 +13,7 @@ name: zipx release
         default: all
 permissions:
   contents: write
+  pull-requests: write
 concurrency:
   group: zipx-release
   cancel-in-progress: false
@@ -42,6 +43,7 @@ jobs:
           node-version: ""
           sbt-disk-cache: "false"
           cache-mode: restore
+          purge: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'purge') }}
           cache-epoch: "3583f1734eaa9359"
       - name: Tag is on the default branch
         if: github.event_name == 'push'
@@ -89,6 +91,31 @@ jobs:
         run: |
           set -euo pipefail
           echo "## Open the next snapshot" >> "$GITHUB_STEP_SUMMARY"
-          echo "These rows are released. Further snapshots of them publish nothing until the catalog moves." >> "$GITHUB_STEP_SUMMARY"
+          echo "After the deployment, that line hides further snapshots of it. Run sbt zipxModverBump and merge it so the next line opens." >> "$GITHUB_STEP_SUMMARY"
           cat target/zipx-release-tags.txt >> "$GITHUB_STEP_SUMMARY"
-          echo "On this commit: sbt zipxModverBump" >> "$GITHUB_STEP_SUMMARY"
+      - name: Open the bump pull request
+        run: |
+          set -euo pipefail
+          sbt zipxModverBump
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No released row to bump."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "zipx/modver-bump-${GITHUB_RUN_ID}"
+          git add --all -- . ":!.github/workflows"
+          if [ -z "$(git diff --cached --name-only)" ]; then
+            echo "No released row to bump."
+            exit 0
+          fi
+          git commit -m "Open the next snapshot line."
+          git push -u origin HEAD
+          gh label create clean --force --description "zipx: Verify runs cleanFull" || true
+          cat > /tmp/zipx-pr-body.md <<'EOF'
+          The release tag stays on the release commit. This branch opens the next catalog line with sbt zipxModverBump.
+          EOF
+          gh pr create --title "Open the next snapshot line" --body-file /tmp/zipx-pr-body.md --head "zipx/modver-bump-${GITHUB_RUN_ID}" --label clean || true
+
+        env:
+          GH_TOKEN: ${{ github.token }}
