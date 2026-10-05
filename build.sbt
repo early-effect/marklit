@@ -131,8 +131,8 @@ lazy val compilerShim = project
     // against any user-requested 3.x compiler. Bump only when we drop a 3.x line.
     scalaVersion := MyVersions.shimScala,
     MyVersions.shimTests,
-    libraryDependencies += MyVersions
-      .moduleID(MyVersions.scala3Compiler) % Provided,
+    // Not a catalog Lib: zipx forces every row onto every project, and the 3.9 bridge needs scala3-compiler 3.9.0.
+    libraryDependencies += ("org.scala-lang" %% "scala3-compiler" % (MyVersions.shimScala: String)) % Provided,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     // Embed the shim's compile-time scala3 version as a plain text resource
     // so CompilerFactory.defaultScalaVersion can read it WITHOUT loading any
