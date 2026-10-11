@@ -326,11 +326,19 @@ lazy val docs = project
     specularMetaProject   := Some(LocalProject("plugin")),
     specularArtifactKind  := "plugin",
     specularSiteDirectory := (ThisBuild / baseDirectory).value / "target" / "site",
-    // Do not strip -ci first. Past v0.1.0, sbt-dynver-ci names the distance 0.1.1-ci,
-    // and stripping that suffix is ShipGroup's next line, not a coordinate on Central.
-    // A raw version containing -ci, +, or SNAPSHOT advertises the last published tag.
+    // Chrome advertises the last published tag. Development version is the ship line
+    // plus -ci (0.1.1-ci). The docs workflow sets SPECULAR_STRIP_CI, and sbt-specular
+    // then ignores this setting and strips that suffix, which is not on Central.
+    // Update the string in the same commit that tags the next release.
     specularDisplayVersion := { raw =>
-      val distance = raw.contains("-ci") || raw.contains("+") || raw.contains("SNAPSHOT")
-      if raw.nonEmpty && !distance then raw else "0.1.0"
+      val published = "0.1.0"
+      if raw.trim == published then published else published
+    },
+    // The forked builder reads -Dspecular.meta.displayVersion. Replace the stripped
+    // ship line with this setting's result.
+    specularMetaProps := Def.uncached {
+      val published = specularDisplayVersion.value("")
+      val pinned    = s"-Dspecular.meta.displayVersion=$published"
+      specularMetaProps.value.filterNot(_.startsWith("-Dspecular.meta.displayVersion=")) :+ pinned
     },
   )
