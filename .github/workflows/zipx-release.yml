@@ -119,3 +119,15 @@ jobs:
 
         env:
           GH_TOKEN: ${{ github.token }}
+  docs:
+    name: docs
+    needs:
+      - release
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: early-effect/.github/.github/workflows/specular-docs.yml@main
+    with:
+      sbt-project: docs

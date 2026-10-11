@@ -30,8 +30,17 @@ object MyVersions extends ZipxVersions:
   val junitInterface = Lib("com.github.sbt", "junit-interface", "0.13.3").java
   val scalaCompiler = Lib("org.scala-lang", "scala-compiler", "2.13.18").java
 
-  val assembly = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
-  val scalafmt = Plugin("org.scalameta", "sbt-scalafmt", "2.6.2")
+  val specular        = Lib("rocks.earlyeffect", "specular-core", "0.20.0")
+  val specularZioTest = specular.mod("specular-zio-test").test
+  val specularSite    = specular.mod("specular-site").test
+  val specularTheme   = specular.mod("early-effect-docs-theme").test
+
+  /** Docs figures only. No published module selects this. */
+  val mermoidAscent = Lib("rocks.earlyeffect", "mermoid-ascent", "0.2.0")
+
+  val assembly       = Plugin("com.eed3si9n", "sbt-assembly", "2.5.0")
+  val scalafmt       = Plugin("org.scalameta", "sbt-scalafmt", "2.6.2")
+  val specularPlugin = Plugin("rocks.earlyeffect", "sbt-specular", "0.20.0")
 
   def junitTests = library(junit.test, junitInterface.test)
   def zioTests = library(zioTest.test, zioTestSbt.test)
@@ -39,4 +48,8 @@ object MyVersions extends ZipxVersions:
   def coreLib = library(zio, zioStreams, zioJson, fastparse, coursierInterface)
   def compilerLib = library(zio, zioStreams, zioJson)
   def cliLib = library(zio, zioCli, coursierInterface, fastparse)
+
+  /** Docs site only. The published plugin does not select these. */
+  def docsTest =
+    library(specularZioTest, specularSite, specularTheme, mermoidAscent.test)
 end MyVersions

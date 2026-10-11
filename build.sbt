@@ -46,13 +46,15 @@ ThisBuild / publishTo := {
 usePgpKeyHex(sys.env.getOrElse("PGP_KEY_HEX", "MISSING_KEY_HEX"))
 
 // zipx: Aggregate verify (builtin testFull) + Central publish (ordered release alias) + catalog PRs.
-zipxJavaVersion := JdkVersion("25")
+zipxJavaVersion      := JdkVersion("25")
+zipxWorkflowDispatch := true
 // Ordered publish: compilerApi → core → compiler → plugin/clean → plugin, then sonaRelease.
 // That `plugin/clean` is why this is the `release` alias, not ZipxCentral.release's default
 // per-module publishSigned + sonaRelease. Aggregate would join `release` once per publisher;
 // releaseRoot is the Once job. `addCommandAlias` is not a TaskKey; SbtCommand.raw is the hatch.
 zipxCapabilities += ZipxCentral.snapshots
 zipxCapabilities += ZipxCentral.pullRequestSnapshots("snapshots")
+zipxCapabilities += ZipxDocs.pages()
 zipxReleaseWorkflow := Some(ZipxCentral.releases)
 
 // Copy a packaged jar (an sbt 2.0 virtual file ref) into a resource dir.
@@ -90,7 +92,8 @@ lazy val root = project
     core,
     compiler,
     cli,
-    plugin
+    plugin,
+    docs
   )
   .settings(
     name := "marklit-root",
@@ -304,4 +307,30 @@ lazy val plugin = project
       s"-Dplugin.version=${version.value}"
     ),
     scriptedBufferLog := false
+  )
+
+// Docs site. Not published. mermoid-ascent is a docs figure dependency only:
+// the published plugin does not depend on this project.
+lazy val docs = project
+  .in(file("docs"))
+  .dependsOn(compiler)
+  .enablePlugins(SpecularPlugin)
+  .settings(
+    name                  := "marklit-docs",
+    publish / skip        := true,
+    publishArtifact       := false,
+    zipxPublish           := zipxOff,
+    MyVersions.docsTest,
+    MyVersions.zioTests,
+    specularBuildMain     := "marklit.docs.BuildSite",
+    specularMetaProject   := Some(LocalProject("plugin")),
+    specularArtifactKind  := "plugin",
+    specularSiteDirectory := (ThisBuild / baseDirectory).value / "target" / "site",
+    // Do not strip -ci first. Past v0.1.0, sbt-dynver-ci names the distance 0.1.1-ci,
+    // and stripping that suffix is ShipGroup's next line, not a coordinate on Central.
+    // A raw version containing -ci, +, or SNAPSHOT advertises the last published tag.
+    specularDisplayVersion := { raw =>
+      val distance = raw.contains("-ci") || raw.contains("+") || raw.contains("SNAPSHOT")
+      if raw.nonEmpty && !distance then raw else "0.1.0"
+    },
   )

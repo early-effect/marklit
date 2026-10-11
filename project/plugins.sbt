@@ -2,3 +2,4 @@
 addSbtPlugin("rocks.earlyeffect" % "sbt-zipx" % "0.18.0")
 addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.5.0")
 addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.2")
+addSbtPlugin("rocks.earlyeffect" % "sbt-specular" % "0.20.0")
