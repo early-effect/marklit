@@ -2,11 +2,9 @@
 
 [![Maven Repository](https://img.shields.io/maven-central/v/rocks.earlyeffect/sbt-marklit_sbt2_3?logo=apachemaven)](https://mvnrepository.com/artifact/rocks.earlyeffect/sbt-marklit)
 
-**Typechecked Scala documentation that actually runs your code — across multiple Scala versions, in the same file.**
+If the doc claims something works, the build breaks when it does not.
 
-Write Markdown with Scala code fences. marklit compiles each fence against your real project classpath, executes it, and renders a new Markdown file with the actual output spliced in. Code that's supposed to fail can be asserted to fail. Code that's supposed to crash can be asserted to crash. And — uniquely — a single document can mix Scala 3.3.7, 3.7.3, 3.8.2, and 2.13.16 blocks side by side, each compiled by its own real compiler.
-
-If your docs claim something works, marklit makes the build break when it doesn't.
+[Docs](https://www.earlyeffect.rocks/marklit/)
 
 ## Installation
 
