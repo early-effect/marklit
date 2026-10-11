@@ -10,12 +10,16 @@ import specular.*
 import specular.ziotest.DocSpecSuite
 import zio.test.*
 
-/** Install coordinate. Always the last published tag. A bare next version is not on Central. */
+/** Install coordinate. Always the last published tag. A bare next version is
+  * not on Central.
+  */
 object DocsVersion:
   /** Last published tag (`v0.1.0`). Update this in the release commit. */
   val published = "0.1.0"
 
-  /** Returns [[published]]. A bare next version, `-ci`, `+`, and `SNAPSHOT` are unpublished. */
+  /** Returns [[published]]. A bare next version, `-ci`, `+`, and `SNAPSHOT` are
+    * unpublished.
+    */
   def advertise(raw: String): String =
     if raw.trim == published then published else published
 
@@ -158,7 +162,7 @@ This fence is compiled by the docs build, against marklit. It parses one markdow
           DocsVersion.advertise("0.1.1") == DocsVersion.published,
           DocsVersion.advertise("0.1.1-ci") == DocsVersion.published,
           DocsVersion.advertise("0.1.0+1-abc") == DocsVersion.published,
-          DocsVersion.advertise(DocsVersion.published) == DocsVersion.published,
+          DocsVersion.advertise(DocsVersion.published) == DocsVersion.published
         )
       }
     )
