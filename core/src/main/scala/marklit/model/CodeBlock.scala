@@ -129,3 +129,4 @@ final case class CodeBlock(
       sharedMajor match
         case None     => false
         case Some(mv) => version.takeWhile(_ != '.') == mv
+end CodeBlock

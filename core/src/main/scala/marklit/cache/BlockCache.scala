@@ -36,6 +36,7 @@ trait BlockCache:
     */
   def put(key: BlockCacheKey, result: CompileResult): UIO[Unit]
   def clear: UIO[Unit]
+end BlockCache
 
 object BlockCache:
 
@@ -53,6 +54,7 @@ object BlockCache:
     * layer above (here, swallowed) — the user still gets correct compilation.
     */
   def disk(root: Path): BlockCache = new DiskBlockCache(root)
+end BlockCache
 
 private final class DiskBlockCache(root: java.nio.file.Path) extends BlockCache:
 
@@ -143,6 +145,7 @@ private final class DiskBlockCache(root: java.nio.file.Path) extends BlockCache:
         if !(keepRoot && f == p) then Files.deleteIfExists(f): Unit
       }
     finally it.close()
+end DiskBlockCache
 
 /** A 64-character lowercase hex SHA-256 of the cache inputs. The wrapper type
   * keeps us from accidentally treating a raw user string as a key.
@@ -224,6 +227,7 @@ object BlockCacheKey:
       sb.append(java.lang.Integer.toHexString(v))
     }
     BlockCacheKey(sb.toString)
+end BlockCacheKey
 
 /** On-disk JSON shape for the metadata side of a cached CompileResult. Class
   * files live in a sibling `<key>.classes/` directory and are wired back in by
@@ -249,6 +253,7 @@ private object CachedCompileResult:
       success = cr.success,
       diagnostics = cr.diagnostics.map(CachedDiagnostic.from)
     )
+end CachedCompileResult
 
 private final case class CachedDiagnostic(
     severity: String,
@@ -284,3 +289,4 @@ private object CachedDiagnostic:
       column = d.column,
       file = d.file
     )
+end CachedDiagnostic

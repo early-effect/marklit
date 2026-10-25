@@ -59,6 +59,7 @@ final case class BlockResult(
     else if crossExecutions.nonEmpty then
       crossExecutions.forall(x => isExecutionSuccess(x.compileResult, x.error))
     else isExecutionSuccess(compileResult, error)
+end BlockResult
 
 /** Result of processing an entire document */
 final case class DocumentResult(
@@ -91,6 +92,7 @@ final case class DocumentResult(
         else br.compileResult.toVector
       crs.filterNot(_.success).map(cr => (br.block, cr.diagnostics))
     }
+end DocumentResult
 
 /** Processes markdown documents with Scala code blocks */
 trait DocumentProcessor:
@@ -149,6 +151,7 @@ trait CompilerService:
       topLevel: Boolean = false,
       topLevelPriorCode: Vector[String] = Vector.empty
   ): IO[MarklitError, String]
+end CompilerService
 
 /** Live implementation that processes blocks sequentially, respecting scope
   * dependencies
@@ -285,6 +288,7 @@ final class DocumentProcessorLive(
             java.time.Duration.between(startTime, endTime)
           )
         }
+  end process
 
   private def processBlock(
       block: CodeBlock,
@@ -355,7 +359,7 @@ final class DocumentProcessorLive(
     else if block.isAnyShared then
       processSharedBlock(block, effectiveVersion, versionsInUse)
     else
-      val effect = for
+      (for
         // Resolve scope and get inherited code, split into hoisted top-level
         // definitions (emitted at file scope) and run-body prior code.
         resolved <- scopeManager.resolveScope(
@@ -397,9 +401,7 @@ final class DocumentProcessorLive(
         executionOutput = execResult.output,
         error = execResult.error, // Captured error for crash blocks
         effectiveScalaVersion = Some(effectiveVersion)
-      )
-
-      effect.catchAll { error =>
+      )).catchAll { error =>
         ZIO.succeed(
           BlockResult(
             block,
@@ -410,6 +412,8 @@ final class DocumentProcessorLive(
           )
         )
       }
+    end if
+  end processBlockChecked
 
   /** Fan-out path for `scala=shared` / `scala=shared-{mv}`: compile+execute the
     * same source against every applicable version in use, gathering one
@@ -428,7 +432,7 @@ final class DocumentProcessorLive(
 
     ZIO
       .foreach(targets) { v =>
-        val effect = for
+        (for
           resolved <- scopeManager.resolveScope(
             ScopeConfig.empty,
             block.location,
@@ -447,9 +451,7 @@ final class DocumentProcessorLive(
           compileResult = Some(compileResult),
           executionOutput = execResult.output,
           error = execResult.error
-        )
-
-        effect.catchAll(err =>
+        )).catchAll(err =>
           ZIO.succeed(
             BlockExecution(
               scalaVersion = v,
@@ -471,6 +473,7 @@ final class DocumentProcessorLive(
           crossExecutions = execs
         )
       }
+  end processSharedBlock
 
   private def compileBlock(
       block: CodeBlock,
@@ -593,6 +596,7 @@ final class DocumentProcessorLive(
           }
       else doExecute.map(out => ExecResult(Some(out), None))
     else ZIO.succeed(ExecResult(None, None))
+end DocumentProcessorLive
 
 object DocumentProcessorLive:
   def layer: URLayer[ScopeManager & CompilerService, DocumentProcessor] =

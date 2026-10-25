@@ -33,6 +33,7 @@ final case class ScopeConfig(
   /** Whether this block creates an anonymous child scope */
   def createsAnonymousChild: Boolean =
     extendsScope.isDefined && id.isEmpty && !append
+end ScopeConfig
 
 object ScopeConfig:
   val empty: ScopeConfig = ScopeConfig()
@@ -56,3 +57,5 @@ object ScopeConfig:
     }
 
     ScopeConfig(id, extendsScope, append, scalaVersion).validate
+  end parse
+end ScopeConfig

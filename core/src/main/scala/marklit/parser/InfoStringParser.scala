@@ -133,3 +133,4 @@ object InfoStringParser:
       case _: Parsed.Failure =>
         // Parse failure - treat as non-scala passthrough
         ParsedInfoString(false, Set(Modifier.Passthrough), ScopeConfig.empty)
+end InfoStringParser

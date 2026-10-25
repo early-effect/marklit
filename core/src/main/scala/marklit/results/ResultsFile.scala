@@ -26,6 +26,7 @@ object DiagnosticEntry:
       line = d.line,
       column = d.column
     )
+end DiagnosticEntry
 
 /** A serializable result for a single code block */
 final case class BlockResultEntry(
@@ -56,6 +57,7 @@ object BlockResultEntry:
         .getOrElse(Nil),
       runtimeError = br.error.map(_.pretty)
     )
+end BlockResultEntry
 
 /** Results from a single marklit run */
 final case class RunResults(
@@ -84,6 +86,7 @@ object RunResults:
         BlockResultEntry.fromBlockResult(_, scalaVersion)
       )
     )
+end RunResults
 
 /** Merged results from multiple runs (different Scala versions) */
 final case class MergedResults(
@@ -106,6 +109,7 @@ final case class MergedResults(
       .get(locationKey)
       .map(_.map(_.scalaVersion))
       .getOrElse(Vector.empty)
+end MergedResults
 
 object MergedResults:
   given JsonCodec[MergedResults] = DeriveJsonCodec.gen[MergedResults]
@@ -130,3 +134,4 @@ object MergedResults:
     else
       val results = parsed.collect { case Right(r) => r }
       Right(merge(results))
+end MergedResults

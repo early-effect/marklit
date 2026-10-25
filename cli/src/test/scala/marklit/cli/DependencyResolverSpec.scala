@@ -167,3 +167,4 @@ object DependencyResolverSpec extends ZIOSpecDefault:
       }
     )
   )
+end DependencyResolverSpec

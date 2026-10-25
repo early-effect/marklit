@@ -118,3 +118,4 @@ object CodeBlockSpec extends ZIOSpecDefault:
       assertTrue(b.showWarningsOverride == None)
     }
   )
+end CodeBlockSpec

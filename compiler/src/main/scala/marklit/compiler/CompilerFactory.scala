@@ -62,6 +62,7 @@ trait CompilerFactory:
       scalaVersion: String,
       extraClasspath: Vector[String]
   ): URIO[Scope, ClassLoader]
+end CompilerFactory
 
 object CompilerFactory:
 
@@ -234,6 +235,7 @@ object CompilerFactory:
         platformLoader.loadClass(name)
         true
       catch case _: ClassNotFoundException => false
+  end ApiOnlyParent
 
   private final class Live(
       shim3Jar: Path,
@@ -318,3 +320,5 @@ object CompilerFactory:
         .newInstance()
         .asInstanceOf[DotcInvoker]
       VersionBundle(invoker, compilerJars, loader)
+  end Live
+end CompilerFactory

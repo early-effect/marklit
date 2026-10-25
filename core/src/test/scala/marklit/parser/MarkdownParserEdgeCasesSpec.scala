@@ -637,3 +637,4 @@ object MarkdownParserEdgeCasesSpec extends ZIOSpecDefault:
       yield assertTrue(doc.codeBlocks.head.code == src)
     }
   )
+end MarkdownParserEdgeCasesSpec

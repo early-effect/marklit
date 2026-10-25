@@ -170,6 +170,7 @@ object DependencyResolver:
 
     def isEmpty: Boolean =
       dependencies.isEmpty && scalaVersion.isEmpty && repositories.isEmpty && scalacOptions.isEmpty
+  end UsingDirectives
 
   extension (ud: UsingDirectives)
     def addDirective(d: Directive): UsingDirectives = d match
@@ -288,6 +289,7 @@ object DependencyResolver:
 
     val fetch = Fetch.create().addDependencies(deps*)
     fetch.fetch().asScala.toVector.map(_.getAbsolutePath)
+  end resolveScalaLibrarySync
 
   /** Resolve compiler jars (with all transitive deps, including the matching
     * stdlib). Used by CompilerFactory to build a per-version classloader for
@@ -326,3 +328,4 @@ object DependencyResolver:
       .asScala
       .toVector
       .map(_.getAbsolutePath)
+end DependencyResolver

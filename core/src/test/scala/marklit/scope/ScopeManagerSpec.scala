@@ -520,3 +520,4 @@ object ScopeManagerSpec extends ZIOSpecDefault:
       }
     )
   ).provide(ScopeManager.layer) @@ TestAspect.sequential
+end ScopeManagerSpec

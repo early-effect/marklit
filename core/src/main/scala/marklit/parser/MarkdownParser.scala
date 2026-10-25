@@ -322,3 +322,4 @@ object MarkdownParser:
   // Internal sentinel for the blockquoted-fence rejection path.
   private class BlockquoteFenceException(val line: Int, val col: Int)
       extends RuntimeException
+end MarkdownParser

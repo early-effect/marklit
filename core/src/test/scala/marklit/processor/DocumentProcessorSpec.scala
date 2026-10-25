@@ -86,6 +86,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
             .RuntimeError(new RuntimeException("crash"), "crash output")
         )
       else ZIO.succeed(executeResults.getOrElse(code, ""))
+  end TestCompiler
 
   def makeBlock(
       code: String,
@@ -1397,3 +1398,4 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
       }
     )
   ).provide(ScopeManager.layer) @@ TestAspect.sequential
+end DocumentProcessorSpec

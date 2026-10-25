@@ -77,3 +77,4 @@ object DependencyResolverSpec extends ZIOSpecDefault:
         }
       )
     ) @@ TestAspect.sequential
+end DependencyResolverSpec

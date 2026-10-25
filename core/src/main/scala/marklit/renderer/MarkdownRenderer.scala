@@ -42,6 +42,7 @@ object MarkdownRenderer:
     }
 
     sb.toString
+  end render
 
   private def renderCodeBlock(
       sb: StringBuilder,
@@ -87,6 +88,7 @@ object MarkdownRenderer:
         val ver = br.effectiveScalaVersion
         renderSingleExecution(sb, block, br, ver, config)
     }
+  end renderCodeBlock
 
   private def renderSingleExecution(
       sb: StringBuilder,
@@ -186,6 +188,7 @@ object MarkdownRenderer:
     sb.append(output)
     if !output.endsWith("\n") then sb.append("\n")
     sb.append("```\n")
+  end renderOutputWithHeader
 
   /** Render a `scala=shared` / `scala=shared-{mv}` block's per-version
     * executions. When every execution succeeded with identical stdout, render a
@@ -250,6 +253,7 @@ object MarkdownRenderer:
               case _ => ()
             }
       }
+  end renderCrossExecutions
 
   private def renderDiagnostics(
       sb: StringBuilder,
@@ -279,6 +283,7 @@ object MarkdownRenderer:
       sb.append(s"${config.errorPrefix}$severity: $cleanMessage\n")
     }
     sb.append("```\n")
+  end renderDiagnostics
 
   /** Render a document using merged results from multiple Scala version runs */
   def renderMerged(
@@ -301,6 +306,7 @@ object MarkdownRenderer:
     }
 
     sb.toString
+  end renderMerged
 
   private def renderCodeBlockMerged(
       sb: StringBuilder,
@@ -373,7 +379,10 @@ object MarkdownRenderer:
               sb.append(s"${config.errorPrefix}$err\n")
               sb.append("```\n")
           }
+        end if
       }
+    end if
+  end renderCodeBlockMerged
 
   private def renderDiagnosticsFromEntries(
       sb: StringBuilder,
@@ -395,3 +404,5 @@ object MarkdownRenderer:
       sb.append(s"${config.errorPrefix}${diag.severity}: $cleanMessage\n")
     }
     sb.append("```\n")
+  end renderDiagnosticsFromEntries
+end MarkdownRenderer

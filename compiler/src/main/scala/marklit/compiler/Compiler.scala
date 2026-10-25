@@ -29,6 +29,7 @@ final case class ScopeContext(
     */
   def hoistedCode: String =
     topLevelPriorCode.mkString("\n\n")
+end ScopeContext
 
 object ScopeContext:
   val empty: ScopeContext = ScopeContext()
@@ -77,6 +78,7 @@ trait Compiler:
             case None    => execute(code, context)
         else ZIO.succeed(ExecutionResult("", Map.empty))
     yield (compileResult, execResult)
+end Compiler
 
 object Compiler:
   def compile(
@@ -96,3 +98,4 @@ object Compiler:
       context: ScopeContext
   ): ZIO[Compiler, MarklitError, (CompileResult, ExecutionResult)] =
     ZIO.serviceWithZIO[Compiler](_.compileAndExecute(code, context))
+end Compiler

@@ -262,3 +262,4 @@ object OutputIsolationSpec extends ZIOSpecDefault:
   ).provideShared(
     TestCompilerLayer.layer
   ) @@ TestAspect.sequential
+end OutputIsolationSpec

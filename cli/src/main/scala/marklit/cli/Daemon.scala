@@ -74,6 +74,7 @@ object Daemon:
         // which is correct: by here, the daemon's main fiber has already
         // resolved cleanly and we just need the JVM to follow.
         .ensuring(ZIO.succeed(java.lang.Runtime.getRuntime.halt(0)))
+  end run
 
   /** Race [[serveOnce]] against an idle timer. Whichever fiber lands first
     * publishes its outcome to a Promise; the loser is fire-and-forget
@@ -225,3 +226,4 @@ object Daemon:
       protocolOut.println(resp.toJson)
       protocolOut.flush()
     }
+end Daemon

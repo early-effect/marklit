@@ -145,3 +145,4 @@ object ScalaCompilerSpec extends ZIOSpecDefault:
   ).provideShared(TestCompilerLayer.layer) @@ TestAspect.timeout(
     60.seconds
   ) @@ TestAspect.withLiveClock @@ TestAspect.sequential
+end ScalaCompilerSpec

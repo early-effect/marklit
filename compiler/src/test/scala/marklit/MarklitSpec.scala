@@ -748,3 +748,4 @@ object MarklitSpec extends ZIOSpecDefault:
   ) @@ TestAspect.sequential @@ TestAspect.timeout(
     60.seconds
   )
+end MarklitSpec

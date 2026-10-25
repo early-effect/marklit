@@ -140,6 +140,7 @@ final class ScalaCompiler(
             classFilesDir = if resp.success() then Some(perBlockOut) else None
           )
         finally Files.deleteIfExists(sourceFile)
+        end try
       }
       .mapError(e =>
         MarklitError.CompileError(
@@ -268,6 +269,7 @@ final class ScalaCompiler(
         finally
           java.lang.System.setOut(oldOut)
           java.lang.System.setErr(oldErr)
+        end try
       }
       .mapError { e =>
         val cause = e match
@@ -400,6 +402,7 @@ final class ScalaCompiler(
       // If the user classloader can't see scala.Console (e.g., a non-Scala
       // runtime path), there's nothing to redirect. Return a no-op.
       case _: ClassNotFoundException => () => ()
+end ScalaCompiler
 
 object ScalaCompiler:
   /** Scala version returned by the bundled shim. Used as the fallback when no
@@ -439,6 +442,7 @@ private class ChildFirstClassLoader(
       catch
         case _: ClassNotFoundException =>
           super.loadClass(name, resolve)
+end ChildFirstClassLoader
 
 private object ChildFirstClassLoader:
   /** The platform classloader can load every JDK platform-module class
@@ -453,3 +457,4 @@ private object ChildFirstClassLoader:
       platformLoader.loadClass(name)
       true
     catch case _: ClassNotFoundException => false
+end ChildFirstClassLoader

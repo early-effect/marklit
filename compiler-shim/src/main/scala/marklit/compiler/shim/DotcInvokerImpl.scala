@@ -56,6 +56,7 @@ final class DotcInvokerImpl extends DotcInvoker:
       .asJava
 
     new CompileResponse(!reporter.hasErrors, diags)
+  end compile
 
 end DotcInvokerImpl
 
@@ -102,3 +103,5 @@ private final class CollectingReporter extends Reporter:
       else None
 
     _diagnostics += ShimDiag(severity, dia.message, line, column, file)
+  end doReport
+end CollectingReporter

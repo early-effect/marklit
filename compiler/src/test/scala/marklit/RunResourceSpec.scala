@@ -269,3 +269,4 @@ object RunResourceSpec extends ZIOSpecDefault:
       }
     }
   ) @@ TestAspect.sequential @@ TestAspect.timeout(180.seconds)
+end RunResourceSpec

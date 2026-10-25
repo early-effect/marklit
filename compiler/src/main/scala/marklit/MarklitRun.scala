@@ -368,3 +368,5 @@ object MarklitRun:
       rendered = rendered,
       outputPath = outputPath
     )
+  end buildReport
+end MarklitRun

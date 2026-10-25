@@ -23,6 +23,7 @@ final case class Scope(
     copy(priorCode = priorCode :+ code)
 
   def allCode: String = priorCode.mkString("\n\n")
+end Scope
 
 object Scope:
   /** Legacy single-default id, kept as the bare-version default for blocks
@@ -58,6 +59,7 @@ object Scope:
       topLevel: Boolean = false
   ): Scope =
     Scope(id, scalaVersion, Vector.empty, parent, topLevel)
+end Scope
 
 /** Result of resolving a scope for a code block.
   *
@@ -97,6 +99,7 @@ final case class ResolvedScope(
     */
   def allCode: String =
     (inheritedCode ++ scope.priorCode).mkString("\n\n")
+end ResolvedScope
 
 /** Manages scope trees for markdown document processing */
 trait ScopeManager:
@@ -131,6 +134,7 @@ trait ScopeManager:
   /** Get scopes that can be compiled in parallel (no dependencies between them)
     */
   def independentScopes: UIO[Vector[Set[String]]]
+end ScopeManager
 
 object ScopeManager:
   def resolveScope(
@@ -163,6 +167,7 @@ object ScopeManager:
   /** Create a new ScopeManager instance */
   def make: UIO[ScopeManager] =
     Ref.make(ScopeState.empty).map(ScopeManagerLive(_))
+end ScopeManager
 
 /** Internal state for scope management */
 private final case class ScopeState(
@@ -201,6 +206,7 @@ private final case class ScopeState(
   def descendants(id: String): Set[String] =
     val direct = children.getOrElse(id, Set.empty)
     direct ++ direct.flatMap(descendants)
+end ScopeState
 
 private object ScopeState:
   val empty: ScopeState = ScopeState(
@@ -542,6 +548,8 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
           ),
           state
         )
+    end match
+  end resolveInternal
 
   /** Collect all code from ancestors in order (oldest first), split by scope
     * kind: `(topLevelCode, bodyCode)`. Because a top-level scope can only be
@@ -587,3 +595,4 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
       val byRoot = state.scopes.keys.groupBy(findRoot)
       byRoot.values.map(_.toSet).toVector
     }
+end ScopeManagerLive

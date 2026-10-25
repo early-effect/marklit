@@ -21,6 +21,7 @@ final case class CompileResult(
 
   def warnings: List[ScalaDiagnostic] =
     diagnostics.filter(_.severity == DiagnosticSeverity.Warning)
+end CompileResult
 
 /** Result of executing compiled code */
 final case class ExecutionResult(

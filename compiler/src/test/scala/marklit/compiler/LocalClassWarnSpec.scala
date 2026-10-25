@@ -66,3 +66,4 @@ object LocalClassWarnSpec extends ZIOSpecDefault:
   ).provideShared(TestCompilerLayer.layer) @@ TestAspect.timeout(
     120.seconds
   ) @@ TestAspect.withLiveClock @@ TestAspect.sequential
+end LocalClassWarnSpec

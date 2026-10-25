@@ -26,6 +26,7 @@ final case class MarklitResult(
     val blockCount = document.codeBlocks.size
     val errorCount = errors.size
     s"$status: $sourceFile ($blockCount blocks, $errorCount errors, ${processingResult.processingTime.toMillis}ms)"
+end MarklitResult
 
 /** Main entry point for marklit document processing */
 trait Marklit:
@@ -40,6 +41,7 @@ trait Marklit:
 
   /** Process multiple files */
   def processFiles(paths: Vector[Path]): IO[MarklitError, Vector[MarklitResult]]
+end Marklit
 
 object Marklit:
   def processFile(path: Path): ZIO[Marklit, MarklitError, MarklitResult] =
@@ -124,6 +126,7 @@ object Marklit:
     CompilerFactory.layer >>> liveWithFactory(
       CompilerFactory.defaultScalaVersion
     )
+end Marklit
 
 /** Adapter from Compiler(s) to CompilerService.
   *
@@ -328,6 +331,7 @@ private final class CompilerServiceAdapter(
         case Some(dir) => c.executeFromDir(dir, ctx).map(_.output)
         case None      => c.execute(code, ctx).map(_.output)
     }
+end CompilerServiceAdapter
 
 private object CompilerServiceAdapter:
   def fixed(compiler: Compiler): CompilerService =
@@ -429,6 +433,7 @@ private object CompilerServiceAdapter:
       sb.append(java.lang.Integer.toHexString(v))
     }
     sb.toString
+end CompilerServiceAdapter
 
 /** Live implementation */
 final class MarklitLive(
@@ -480,3 +485,4 @@ final class MarklitLive(
       paths: Vector[Path]
   ): IO[MarklitError, Vector[MarklitResult]] =
     ZIO.foreach(paths)(processFile)
+end MarklitLive

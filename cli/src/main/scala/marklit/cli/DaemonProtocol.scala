@@ -33,6 +33,7 @@ object DaemonProtocol:
     case object Shutdown extends Request
 
     given JsonCodec[Request] = DeriveJsonCodec.gen[Request]
+  end Request
 
   /** Parameters for the `clear-cache` RPC. The daemon doesn't keep cache state
     * between requests; the caller tells it which directory to clear.
@@ -74,6 +75,7 @@ object DaemonProtocol:
     final case class Err(method: String, message: String) extends Response
 
     given JsonCodec[Response] = DeriveJsonCodec.gen[Response]
+  end Response
 
   /** Per-file outcome from one compile-document request. */
   final case class FileResult(
@@ -89,3 +91,4 @@ object DaemonProtocol:
     def isSuccess: Boolean = files.forall(_.success)
   object CompileResponse:
     given JsonCodec[CompileResponse] = DeriveJsonCodec.gen[CompileResponse]
+end DaemonProtocol

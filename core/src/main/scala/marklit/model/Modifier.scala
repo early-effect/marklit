@@ -49,3 +49,4 @@ object Modifier:
     case Shared         => "scala=shared"
     case SharedMajor(m) => s"scala=shared-$m"
     case TopLevel       => "top-level"
+end Modifier

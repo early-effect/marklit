@@ -256,3 +256,4 @@ object ResultsFileSpec extends ZIOSpecDefault:
       }
     )
   )
+end ResultsFileSpec

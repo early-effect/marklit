@@ -307,3 +307,6 @@ object MarklitCli extends ZIOCliDefault:
         .fail(new RuntimeException(s"${result.failedCount} file(s) failed"))
         .unless(result.success)
     yield ()
+    end for
+  end runMarklit
+end MarklitCli
