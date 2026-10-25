@@ -5,33 +5,25 @@ import zio.test.*
 
 import java.nio.file.{Files, Path}
 
-/** End-to-end tests for the build-provided run-scoped resource
-  * ([[MarklitRunConfig.runResourceClass]]).
+/** End-to-end tests for the build-provided run-scoped resource ([[MarklitRunConfig.runResourceClass]]).
   *
-  * The resource class is loaded by marklit's per-run user loader `U`, a
-  * different classloader from this test, so state is observed across the
-  * boundary via (a) a file named by the `marklit.test.events` system property
-  * for lifecycle events, and (b) rendered block output for the shared in-JVM
-  * counter. See `marklit.testfixtures.RunResourceFixtures`.
+  * The resource class is loaded by marklit's per-run user loader `U`, a different classloader from this test, so state
+  * is observed across the boundary via (a) a file named by the `marklit.test.events` system property for lifecycle
+  * events, and (b) rendered block output for the shared in-JVM counter. See `marklit.testfixtures.RunResourceFixtures`.
   */
 object RunResourceSpec extends ZIOSpecDefault:
 
-  /** User classpath for the run, gathered from the test's own classloader URL
-    * chain (sbt's test runner uses layered classloaders, so `java.class.path`
-    * is unreliable here). Minus the Scala stdlib, which the per-version
-    * compiler loader supplies — leaving the host's copy on would clash. This
-    * mirrors how a build forwards its `fullClasspath` and gives `U` the
-    * fixtures *and* the full ZIO dependency set a zio-app block needs to
-    * compile (marklit's `ApiOnlyParent` hides the host's copies, so they must
-    * be passed explicitly).
+  /** User classpath for the run, gathered from the test's own classloader URL chain (sbt's test runner uses layered
+    * classloaders, so `java.class.path` is unreliable here). Minus the Scala stdlib, which the per-version compiler
+    * loader supplies — leaving the host's copy on would clash. This mirrors how a build forwards its `fullClasspath`
+    * and gives `U` the fixtures *and* the full ZIO dependency set a zio-app block needs to compile (marklit's
+    * `ApiOnlyParent` hides the host's copies, so they must be passed explicitly).
     */
   private val testClasspath: Vector[String] =
     def loaderUrls(cl: ClassLoader): Vector[String] =
       val here = cl match
         case u: java.net.URLClassLoader =>
-          u.getURLs.toVector.map(url =>
-            java.nio.file.Paths.get(url.toURI).toString
-          )
+          u.getURLs.toVector.map(url => java.nio.file.Paths.get(url.toURI).toString)
         case _ => Vector.empty
       val parent = Option(cl.getParent).map(loaderUrls).getOrElse(Vector.empty)
       parent ++ here
@@ -62,10 +54,9 @@ object RunResourceSpec extends ZIOSpecDefault:
       }.ignore
     )
 
-  /** A fresh temp file whose path is published to the `marklit.test.events`
-    * system property for the lifetime of the enclosing scope, then cleared. The
-    * property is how the fixture (on loader `U`) and this test agree on the
-    * event file across the classloader boundary.
+  /** A fresh temp file whose path is published to the `marklit.test.events` system property for the lifetime of the
+    * enclosing scope, then cleared. The property is how the fixture (on loader `U`) and this test agree on the event
+    * file across the classloader boundary.
     */
   private def eventsFile: ZIO[Scope, Throwable, Path] =
     ZIO.acquireRelease(
@@ -84,17 +75,14 @@ object RunResourceSpec extends ZIOSpecDefault:
   private def readLines(p: Path): ZIO[Any, Throwable, Vector[String]] =
     ZIO.attempt {
       import scala.jdk.CollectionConverters.*
-      if Files.exists(p) then
-        Files.readAllLines(p).asScala.toVector.filter(_.nonEmpty)
+      if Files.exists(p) then Files.readAllLines(p).asScala.toVector.filter(_.nonEmpty)
       else Vector.empty
     }
 
-  /** Pin the run to the Scala version this test was built with, so the ZIO jar
-    * on [[testClasspath]] (built for that version) has TASTy the resolved
-    * compiler can read. The bundled default shim is older and would reject
-    * newer ZIO TASTy — a version-skew artifact of the test harness, not of the
-    * feature. The per-run user loader `U` is built at this same version, so
-    * sharing lines up.
+  /** Pin the run to the Scala version this test was built with, so the ZIO jar on [[testClasspath]] (built for that
+    * version) has TASTy the resolved compiler can read. The bundled default shim is older and would reject newer ZIO
+    * TASTy — a version-skew artifact of the test harness, not of the feature. The per-run user loader `U` is built at
+    * this same version, so sharing lines up.
     */
   private val hostScalaVersion: String =
     scala.util.Properties.versionNumberString
@@ -241,9 +229,7 @@ object RunResourceSpec extends ZIOSpecDefault:
         yield assertTrue(
           // The run is not failed by a resource setup error — docs still process.
           result.success,
-          result.notices.exists(n =>
-            n.contains("setup failed") && n.contains("boom-setup")
-          )
+          result.notices.exists(n => n.contains("setup failed") && n.contains("boom-setup"))
         )
       }
     },
@@ -262,9 +248,7 @@ object RunResourceSpec extends ZIOSpecDefault:
           )
         yield assertTrue(
           result.success,
-          result.notices.exists(n =>
-            n.contains("teardown failed") && n.contains("boom-teardown")
-          )
+          result.notices.exists(n => n.contains("teardown failed") && n.contains("boom-teardown"))
         )
       }
     }

@@ -251,8 +251,7 @@ object MarklitCli extends ZIOCliDefault:
       effect.as(options)
     }
 
-  /** Split a `--classpath`-style flag value into entries (colon/semicolon
-    * separated), or empty when absent.
+  /** Split a `--classpath`-style flag value into entries (colon/semicolon separated), or empty when absent.
     */
   private def splitClasspath(cp: Option[String]): Vector[String] =
     cp.map(_.split("[;:]").toVector).getOrElse(Vector.empty)

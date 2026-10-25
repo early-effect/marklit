@@ -5,13 +5,11 @@ import zio.test.*
 
 /** Edge case audit suite for [[MarkdownParser]].
   *
-  * Each test encodes the **CommonMark-correct expectation** for a known or
-  * suspected divergence in marklit's fence scanner. Tests prefixed with
-  * `// AUDIT:` are predicted to currently fail; their failure output is the
-  * deliverable for deciding whether to fix piecemeal or rewrite the scanner.
+  * Each test encodes the **CommonMark-correct expectation** for a known or suspected divergence in marklit's fence
+  * scanner. Tests prefixed with `// AUDIT:` are predicted to currently fail; their failure output is the deliverable
+  * for deciding whether to fix piecemeal or rewrite the scanner.
   *
-  * Categories track the plan in
-  * `~/.claude/plans/i-want-to-harden-squishy-micali.md`:
+  * Categories track the plan in `~/.claude/plans/i-want-to-harden-squishy-micali.md`:
   *   - A: opening fence indentation
   *   - B: closing fence length
   *   - C: closing fence character match

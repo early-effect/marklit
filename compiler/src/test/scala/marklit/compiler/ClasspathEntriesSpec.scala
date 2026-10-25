@@ -30,8 +30,7 @@ object ClasspathEntriesSpec extends ZIOSpecDefault:
       val jar = Files.createTempFile("marklit-cp-spec-", ".jar")
       Files.write(
         jar,
-        Array[Byte]('P', 'K', 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0)
+        Array[Byte]('P', 'K', 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
       )
       val out = ClasspathEntries.forScalac(Vector(jar.toString, dir.toString))
       assertTrue(out == Vector(jar.toString, dir.toString))
@@ -40,8 +39,7 @@ object ClasspathEntriesSpec extends ZIOSpecDefault:
       val cas = Files.createTempFile("marklit-cp-cas-", "")
       Files.write(
         cas,
-        Array[Byte]('P', 'K', 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0)
+        Array[Byte]('P', 'K', 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
       )
       // Drop the random suffix file's accidental extensionless nature is enough
       val a = ClasspathEntries.forScalac(Vector(cas.toString)).head

@@ -10,11 +10,9 @@ import java.nio.file.{Files, Path}
 
 /** Configuration for an end-to-end marklit run over a set of markdown files.
   *
-  * This is the CLI-independent superset of the options the CLI used to thread
-  * through command-line flags. Classpaths arrive already split into entries
-  * (the CLI does the `[;:]` splitting before constructing this); `watch` and
-  * `daemon` have no place here — they are concerns of the caller's process
-  * model, not of the per-run orchestration.
+  * This is the CLI-independent superset of the options the CLI used to thread through command-line flags. Classpaths
+  * arrive already split into entries (the CLI does the `[;:]` splitting before constructing this); `watch` and `daemon`
+  * have no place here — they are concerns of the caller's process model, not of the per-run orchestration.
   */
 final case class MarklitRunConfig(
     inputFiles: Vector[Path],
@@ -34,9 +32,8 @@ final case class MarklitRunConfig(
     runResourceClass: Option[String] = None
 )
 
-/** Per-file outcome with no Console side effects. `rendered` is populated when
-  * an output directory is configured and the file is not in check mode (so a
-  * caller can choose to write it itself); `outputPath` is where it would land.
+/** Per-file outcome with no Console side effects. `rendered` is populated when an output directory is configured and
+  * the file is not in check mode (so a caller can choose to write it itself); `outputPath` is where it would land.
   */
 final case class MarklitFileReport(
     sourceFile: Path,
@@ -48,11 +45,9 @@ final case class MarklitFileReport(
     outputPath: Option[Path]
 )
 
-/** Structured result of a run. `notices` are ordered informational lines the
-  * caller may surface verbatim (the facade has already applied the verbose gate
-  * when deciding which lines to include). Compile failures are reported as data
-  * via [[MarklitFileReport.success]]; only file-read/parse/resolution errors
-  * fail the effect.
+/** Structured result of a run. `notices` are ordered informational lines the caller may surface verbatim (the facade
+  * has already applied the verbose gate when deciding which lines to include). Compile failures are reported as data
+  * via [[MarklitFileReport.success]]; only file-read/parse/resolution errors fail the effect.
   */
 final case class MarklitRunResult(
     files: Vector[MarklitFileReport],
@@ -61,17 +56,15 @@ final case class MarklitRunResult(
   def success: Boolean = files.forall(_.success)
   def failedCount: Int = files.count(!_.success)
 
-/** The shared, side-effect-free orchestration that drives marklit over a set of
-  * files: parse `//> using` directives, aggregate and resolve dependencies
-  * once, build per-major classpaths, process each file through [[Marklit]],
-  * render and optionally write outputs. Both the CLI and the build-tool plugins
-  * call this so the multi-file logic lives in exactly one place.
+/** The shared, side-effect-free orchestration that drives marklit over a set of files: parse `//> using` directives,
+  * aggregate and resolve dependencies once, build per-major classpaths, process each file through [[Marklit]], render
+  * and optionally write outputs. Both the CLI and the build-tool plugins call this so the multi-file logic lives in
+  * exactly one place.
   */
 object MarklitRun:
 
-  /** Run with a freshly-built [[CompilerFactory]] (the CLI path). The factory
-    * is built once and shared across all files, so per-version compilers are
-    * reused within the run.
+  /** Run with a freshly-built [[CompilerFactory]] (the CLI path). The factory is built once and shared across all
+    * files, so per-version compilers are reused within the run.
     */
   def run(
       config: MarklitRunConfig,
@@ -87,9 +80,8 @@ object MarklitRun:
         .flatMap(env => runWith(config, env.get[CompilerFactory], writeOutputs))
     }
 
-  /** Run with a caller-supplied, long-lived [[CompilerFactory]] (the plugin
-    * path). The factory's per-version cache survives across invocations,
-    * keeping compilers warm — the in-process replacement for the old daemon.
+  /** Run with a caller-supplied, long-lived [[CompilerFactory]] (the plugin path). The factory's per-version cache
+    * survives across invocations, keeping compilers warm — the in-process replacement for the old daemon.
     */
   def runWith(
       config: MarklitRunConfig,
@@ -261,21 +253,17 @@ object MarklitRun:
       noticeLines <- notices.get
     yield MarklitRunResult(reports, noticeLines.toVector)
 
-  /** Acquire the build-provided run resource (when configured) for the duration
-    * of the enclosing [[Scope]]. A no-op when `config.runResourceClass` is
-    * unset.
+  /** Acquire the build-provided run resource (when configured) for the duration of the enclosing [[Scope]]. A no-op
+    * when `config.runResourceClass` is unset.
     *
-    * The resource is a user class on the docs' own classpath implementing the
-    * JDK type `java.util.function.Supplier[AutoCloseable]`: `get()` performs
-    * setup (start a DB container, create a schema, …) and returns an
-    * `AutoCloseable` whose `close()` is the teardown. Using only JDK types
-    * keeps the instance usable across marklit's classloader boundary — see
-    * [[CompilerFactory.userClassLoader]].
+    * The resource is a user class on the docs' own classpath implementing the JDK type
+    * `java.util.function.Supplier[AutoCloseable]`: `get()` performs setup (start a DB container, create a schema, …)
+    * and returns an `AutoCloseable` whose `close()` is the teardown. Using only JDK types keeps the instance usable
+    * across marklit's classloader boundary — see [[CompilerFactory.userClassLoader]].
     *
-    * Both `get()` and `close()` are best-effort with respect to the run: a
-    * setup failure is surfaced as a notice and lets the run proceed (the docs
-    * that need the resource will fail on their own and report it); a teardown
-    * failure is logged and swallowed so it never masks the run's real result.
+    * Both `get()` and `close()` are best-effort with respect to the run: a setup failure is surfaced as a notice and
+    * lets the run proceed (the docs that need the resource will fail on their own and report it); a teardown failure is
+    * logged and swallowed so it never masks the run's real result.
     */
   private def acquireRunResource(
       config: MarklitRunConfig,
@@ -312,15 +300,13 @@ object MarklitRun:
                 )
             )
             .foldZIO(
-              e =>
-                addNote(s"run resource '$fqn' setup failed: ${e.getMessage}"),
+              e => addNote(s"run resource '$fqn' setup failed: ${e.getMessage}"),
               _ => ZIO.unit
             )
         yield Some(loader)
 
-  /** Build a side-effect-free per-file report from a [[MarklitResult]],
-    * rendering output markdown when an output dir is configured and the run is
-    * not in check mode.
+  /** Build a side-effect-free per-file report from a [[MarklitResult]], rendering output markdown when an output dir is
+    * configured and the run is not in check mode.
     */
   private def buildReport(
       result: MarklitResult,

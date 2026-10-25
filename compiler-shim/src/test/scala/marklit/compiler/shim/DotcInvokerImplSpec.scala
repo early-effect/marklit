@@ -8,20 +8,17 @@ import zio.test.*
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
-/** Integration tests for the shim. The shim is the only place dotty.* is
-  * touched, so these tests are the only place we verify a real compilation
-  * against a real dotc — every other module mocks at the `Compiler` trait.
+/** Integration tests for the shim. The shim is the only place dotty.* is touched, so these tests are the only place we
+  * verify a real compilation against a real dotc — every other module mocks at the `Compiler` trait.
   *
-  * The shim is exercised here within sbt's test classloader, which has the
-  * project's compile-time `scala3-compiler` on it. Cross-version loading
-  * happens later, in CompilerFactory's tests.
+  * The shim is exercised here within sbt's test classloader, which has the project's compile-time `scala3-compiler` on
+  * it. Cross-version loading happens later, in CompilerFactory's tests.
   */
 object DotcInvokerImplSpec extends ZIOSpecDefault:
 
-  /** Resolve scala3-library + scala-library jars via Coursier, against the
-    * version the shim was compiled with. This is the same approach the
-    * production code (CompilerFactory) takes — keeping the test honest about
-    * the same boundary the real classpath construction uses.
+  /** Resolve scala3-library + scala-library jars via Coursier, against the version the shim was compiled with. This is
+    * the same approach the production code (CompilerFactory) takes — keeping the test honest about the same boundary
+    * the real classpath construction uses.
     */
   private lazy val scalaLibraryJars: Vector[String] =
     val version = new DotcInvokerImpl().compilerVersion()
@@ -35,9 +32,8 @@ object DotcInvokerImplSpec extends ZIOSpecDefault:
       .toVector
       .map(_.getAbsolutePath)
 
-  /** Allocate a writable temp dir and a `.scala` source file with the given
-    * content, then build a CompileRequest pointing at them. Returns the request
-    * plus the temp dir so the caller can clean up.
+  /** Allocate a writable temp dir and a `.scala` source file with the given content, then build a CompileRequest
+    * pointing at them. Returns the request plus the temp dir so the caller can clean up.
     */
   private def mkRequest(source: String): (CompileRequest, Path) =
     val tmp = Files.createTempDirectory("marklit-shim-test-")

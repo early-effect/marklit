@@ -45,8 +45,7 @@ object BlockResultEntry:
 
   def fromBlockResult(br: BlockResult, scalaVersion: String): BlockResultEntry =
     BlockResultEntry(
-      locationKey =
-        s"${br.block.location.file}:${br.block.location.startLine}:${br.block.location.startColumn}",
+      locationKey = s"${br.block.location.file}:${br.block.location.startLine}:${br.block.location.startColumn}",
       scalaVersion = scalaVersion,
       code = br.block.code,
       success = br.isSuccess,
@@ -129,8 +128,7 @@ object MergedResults:
     given JsonCodec[RunResults] = RunResults.given_JsonCodec_RunResults
     val parsed = jsons.map(_.fromJson[RunResults])
     val errors = parsed.collect { case Left(e) => e }
-    if errors.nonEmpty then
-      Left(s"Failed to parse results: ${errors.mkString(", ")}")
+    if errors.nonEmpty then Left(s"Failed to parse results: ${errors.mkString(", ")}")
     else
       val results = parsed.collect { case Right(r) => r }
       Right(merge(results))

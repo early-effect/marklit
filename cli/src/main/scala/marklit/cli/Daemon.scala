@@ -8,28 +8,24 @@ import java.nio.file.Paths
 
 /** Long-lived stdin/stdout JSON-RPC server.
   *
-  * Started by `marklit --daemon`. Reads one request per line from stdin,
-  * dispatches to a handler, writes one response per line to stdout. The loop
-  * ends on any of:
+  * Started by `marklit --daemon`. Reads one request per line from stdin, dispatches to a handler, writes one response
+  * per line to stdout. The loop ends on any of:
   *
-  *   - stdin closes (parent process death) — primary shutdown trigger; the
-  *     `Console.readLine` effect surfaces it via `IOException`/EOF.
-  *   - idle timeout expires — defense in depth against hung-but-not-dead
-  *     parents.
+  *   - stdin closes (parent process death) — primary shutdown trigger; the `Console.readLine` effect surfaces it via
+  *     `IOException`/EOF.
+  *   - idle timeout expires — defense in depth against hung-but-not-dead parents.
   *   - explicit `shutdown` RPC.
   */
 object Daemon:
 
-  /** 15 minutes — long enough for sbt to come back from a `~test` cycle, short
-    * enough that an orphaned daemon doesn't sit forever.
+  /** 15 minutes — long enough for sbt to come back from a `~test` cycle, short enough that an orphaned daemon doesn't
+    * sit forever.
     */
   val defaultIdleTimeout: Duration = 15.minutes
 
-  /** The original stdout FileDescriptor, captured before we redirect
-    * `System.out` to stderr. The JSON-RPC reply path writes through this
-    * reference so user-pipeline `Console.printLine`/`println` calls — which now
-    * go through the redirected `System.out` — can't corrupt the wire format no
-    * matter what classpath or library does the printing.
+  /** The original stdout FileDescriptor, captured before we redirect `System.out` to stderr. The JSON-RPC reply path
+    * writes through this reference so user-pipeline `Console.printLine`/`println` calls — which now go through the
+    * redirected `System.out` — can't corrupt the wire format no matter what classpath or library does the printing.
     */
   private lazy val protocolOut: java.io.PrintStream =
     new java.io.PrintStream(
@@ -76,19 +72,15 @@ object Daemon:
         .ensuring(ZIO.succeed(java.lang.Runtime.getRuntime.halt(0)))
   end run
 
-  /** Race [[serveOnce]] against an idle timer. Whichever fiber lands first
-    * publishes its outcome to a Promise; the loser is fire-and-forget
-    * interrupted.
+  /** Race [[serveOnce]] against an idle timer. Whichever fiber lands first publishes its outcome to a Promise; the
+    * loser is fire-and-forget interrupted.
     *
-    * Why a Promise instead of `serveOnce.race(timer)`: the reader fiber's
-    * `Console.readLine` ultimately blocks in `System.in.read()` on a non-daemon
-    * JVM thread that the kernel can't be interrupted out of. `race` (and
-    * `raceFirst`, and `join.race(join)`) all want to either await the loser's
-    * interruption or observe both completions in lockstep — empirically that
-    * hangs when the loser is wedged in a syscall, even if the winner has
-    * already produced a result. Going through `await` (which yields an `Exit`
-    * and never throws) and feeding the first landing into a Promise
-    * short-circuits that.
+    * Why a Promise instead of `serveOnce.race(timer)`: the reader fiber's `Console.readLine` ultimately blocks in
+    * `System.in.read()` on a non-daemon JVM thread that the kernel can't be interrupted out of. `race` (and
+    * `raceFirst`, and `join.race(join)`) all want to either await the loser's interruption or observe both completions
+    * in lockstep — empirically that hangs when the loser is wedged in a syscall, even if the winner has already
+    * produced a result. Going through `await` (which yields an `Exit` and never throws) and feeding the first landing
+    * into a Promise short-circuits that.
     */
   private def serveOneRequest(
       idleTimeout: Duration
@@ -116,10 +108,9 @@ object Daemon:
   private enum LoopOutcome:
     case Continue, Stop
 
-  /** Read one request, handle it, write one response. Returns
-    * [[LoopOutcome.Continue]] for normal requests, [[LoopOutcome.Stop]] for
-    * `shutdown`. EOF on stdin (parent closed our pipe) surfaces as an
-    * `EOFException` that the outer `run` catches.
+  /** Read one request, handle it, write one response. Returns [[LoopOutcome.Continue]] for normal requests,
+    * [[LoopOutcome.Stop]] for `shutdown`. EOF on stdin (parent closed our pipe) surfaces as an `EOFException` that the
+    * outer `run` catches.
     */
   private def serveOnce: ZIO[Any, Throwable, LoopOutcome] =
     Console.readLine.flatMap { line =>

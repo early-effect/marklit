@@ -7,8 +7,7 @@ package marklit.model
   *   - `extends` without `id` creates anonymous child scope
   *   - `extends` with `append` mutates the parent scope
   *   - `id` with `extends` creates a named child scope
-  *   - `scalaVersion` sets compiler version; scopes cannot extend across
-  *     versions
+  *   - `scalaVersion` sets compiler version; scopes cannot extend across versions
   */
 final case class ScopeConfig(
     id: Option[String] = None,
@@ -18,10 +17,8 @@ final case class ScopeConfig(
 ):
   /** Validate that the configuration is legal */
   def validate: Either[String, ScopeConfig] =
-    if id.isDefined && append then
-      Left("Cannot use both 'id' and 'append' - they are mutually exclusive")
-    else if append && extendsScope.isEmpty then
-      Left("'append' requires 'extends' to specify the parent scope")
+    if id.isDefined && append then Left("Cannot use both 'id' and 'append' - they are mutually exclusive")
+    else if append && extendsScope.isEmpty then Left("'append' requires 'extends' to specify the parent scope")
     else Right(this)
 
   /** Whether this block creates a new named scope */
@@ -38,8 +35,7 @@ end ScopeConfig
 object ScopeConfig:
   val empty: ScopeConfig = ScopeConfig()
 
-  /** Parse scope config from modifier strings like "id=foo", "extends=bar",
-    * "append"
+  /** Parse scope config from modifier strings like "id=foo", "extends=bar", "append"
     */
   def parse(modifiers: Seq[String]): Either[String, ScopeConfig] =
     var id: Option[String] = None
@@ -49,11 +45,9 @@ object ScopeConfig:
 
     modifiers.foreach { mod =>
       if mod.startsWith("id=") then id = Some(mod.stripPrefix("id="))
-      else if mod.startsWith("extends=") then
-        extendsScope = Some(mod.stripPrefix("extends="))
+      else if mod.startsWith("extends=") then extendsScope = Some(mod.stripPrefix("extends="))
       else if mod == "append" then append = true
-      else if mod.startsWith("scala=") then
-        scalaVersion = Some(mod.stripPrefix("scala="))
+      else if mod.startsWith("scala=") then scalaVersion = Some(mod.stripPrefix("scala="))
     }
 
     ScopeConfig(id, extendsScope, append, scalaVersion).validate

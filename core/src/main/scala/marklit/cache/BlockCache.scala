@@ -9,30 +9,25 @@ import java.security.MessageDigest
 
 /** A persistent content-addressed cache for compile results.
   *
-  * Each entry is keyed by a SHA-256 hash of every input that influences a
-  * block's compile outcome — block source, prior code, effective Scala version,
-  * classpath, scalac options, modifiers, and source location. Entries live in a
-  * fan-out directory layout `<root>/<key[0..2]>/<key>.{json,classes}` to avoid
-  * 100k-files-in-one-dir issues on older filesystems.
+  * Each entry is keyed by a SHA-256 hash of every input that influences a block's compile outcome — block source, prior
+  * code, effective Scala version, classpath, scalac options, modifiers, and source location. Entries live in a fan-out
+  * directory layout `<root>/<key[0..2]>/<key>.{json,classes}` to avoid 100k-files-in-one-dir issues on older
+  * filesystems.
   *
   *   - `<key>.json` holds the diagnostics + success flag.
-  *   - `<key>.classes/` holds the dotc-emitted class files, copied verbatim
-  *     from the per-block compile output directory. The executor reads directly
-  *     from this directory on a hit, so no materialization step is needed; the
+  *   - `<key>.classes/` holds the dotc-emitted class files, copied verbatim from the per-block compile output
+  *     directory. The executor reads directly from this directory on a hit, so no materialization step is needed; the
   *     cached dir is treated as immutable.
   *
-  * Compile-only: we cache `CompileResult` (success flag, diagnostics, class
-  * files) but never execution output. Execute blocks always re-run because
-  * their outputs may legitimately depend on side-effecting state we can't
-  * capture.
+  * Compile-only: we cache `CompileResult` (success flag, diagnostics, class files) but never execution output. Execute
+  * blocks always re-run because their outputs may legitimately depend on side-effecting state we can't capture.
   */
 trait BlockCache:
   def get(key: BlockCacheKey): UIO[Option[CompileResult]]
 
-  /** Persist the result. When [[result.classFilesDir]] is set and
-    * [[result.success]] is true, the directory's contents are copied into the
-    * cache entry; the cached `CompileResult` returned from a future [[get]]
-    * will point at the cached copy.
+  /** Persist the result. When [[result.classFilesDir]] is set and [[result.success]] is true, the directory's contents
+    * are copied into the cache entry; the cached `CompileResult` returned from a future [[get]] will point at the
+    * cached copy.
     */
   def put(key: BlockCacheKey, result: CompileResult): UIO[Unit]
   def clear: UIO[Unit]
@@ -40,18 +35,17 @@ end BlockCache
 
 object BlockCache:
 
-  /** A no-op cache. Useful when the user runs without `--cache-dir` (raw
-    * one-shot CLI invocations) or for tests that want to bypass caching.
+  /** A no-op cache. Useful when the user runs without `--cache-dir` (raw one-shot CLI invocations) or for tests that
+    * want to bypass caching.
     */
   val noop: BlockCache = new BlockCache:
     def get(key: BlockCacheKey): UIO[Option[CompileResult]] = ZIO.none
     def put(key: BlockCacheKey, result: CompileResult): UIO[Unit] = ZIO.unit
     def clear: UIO[Unit] = ZIO.unit
 
-  /** Disk-backed cache rooted at [[root]]. Misses (missing file, malformed
-    * JSON) return `None`; we never fail the compile path because of a cache
-    * read error. Writes are best-effort: a cache write failure is logged at the
-    * layer above (here, swallowed) — the user still gets correct compilation.
+  /** Disk-backed cache rooted at [[root]]. Misses (missing file, malformed JSON) return `None`; we never fail the
+    * compile path because of a cache read error. Writes are best-effort: a cache write failure is logged at the layer
+    * above (here, swallowed) — the user still gets correct compilation.
     */
   def disk(root: Path): BlockCache = new DiskBlockCache(root)
 end BlockCache
@@ -147,8 +141,8 @@ private final class DiskBlockCache(root: java.nio.file.Path) extends BlockCache:
     finally it.close()
 end DiskBlockCache
 
-/** A 64-character lowercase hex SHA-256 of the cache inputs. The wrapper type
-  * keeps us from accidentally treating a raw user string as a key.
+/** A 64-character lowercase hex SHA-256 of the cache inputs. The wrapper type keeps us from accidentally treating a raw
+  * user string as a key.
   */
 final case class BlockCacheKey(value: String) extends AnyVal
 
@@ -156,18 +150,14 @@ object BlockCacheKey:
 
   /** Build a key from every input that affects raw compiler output.
     *
-    * Modifiers like `expectsFailure` / `expectsWarnings` are deliberately *not*
-    * keyed — they alter how the document processor interprets the result (a
-    * "fail" block flips a compile failure into a successful BlockResult), but
-    * they don't change the bytes the compiler produces. Caching the raw
-    * [[CompileResult]] and letting the wrapper layer reinterpret it on every
-    * run is correct and keeps the key narrow.
+    * Modifiers like `expectsFailure` / `expectsWarnings` are deliberately *not* keyed — they alter how the document
+    * processor interprets the result (a "fail" block flips a compile failure into a successful BlockResult), but they
+    * don't change the bytes the compiler produces. Caching the raw [[CompileResult]] and letting the wrapper layer
+    * reinterpret it on every run is correct and keeps the key narrow.
     *
-    * Adding a field here invalidates every existing cache entry — that's the
-    * correct behavior, since old entries were computed without considering the
-    * new input. If you're tempted to keep entries across a key-shape change:
-    * don't. Bump the version prefix below instead, which also invalidates
-    * cleanly.
+    * Adding a field here invalidates every existing cache entry — that's the correct behavior, since old entries were
+    * computed without considering the new input. If you're tempted to keep entries across a key-shape change: don't.
+    * Bump the version prefix below instead, which also invalidates cleanly.
     */
   def make(
       code: String,
@@ -229,9 +219,8 @@ object BlockCacheKey:
     BlockCacheKey(sb.toString)
 end BlockCacheKey
 
-/** On-disk JSON shape for the metadata side of a cached CompileResult. Class
-  * files live in a sibling `<key>.classes/` directory and are wired back in by
-  * [[DiskBlockCache.get]] — they aren't carried in the JSON.
+/** On-disk JSON shape for the metadata side of a cached CompileResult. Class files live in a sibling `<key>.classes/`
+  * directory and are wired back in by [[DiskBlockCache.get]] — they aren't carried in the JSON.
   */
 private final case class CachedCompileResult(
     success: Boolean,

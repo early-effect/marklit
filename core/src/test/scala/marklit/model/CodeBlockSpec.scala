@@ -71,9 +71,7 @@ object CodeBlockSpec extends ZIOSpecDefault:
         Modifier.SharedMajor("3")
       )
       assertTrue(
-        bad.forall(m =>
-          blockWith(Set(Modifier.TopLevel, m)).modifierConflicts.isDefined
-        )
+        bad.forall(m => blockWith(Set(Modifier.TopLevel, m)).modifierConflicts.isDefined)
       )
     },
     test("modifierConflicts is None for a non-top-level block") {

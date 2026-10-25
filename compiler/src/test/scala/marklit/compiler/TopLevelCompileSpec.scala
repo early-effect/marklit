@@ -4,10 +4,9 @@ import marklit.model.*
 import zio.*
 import zio.test.*
 
-/** Compiler-level coverage for the `top-level` feature: blocks that compile
-  * verbatim as their own compilation unit (no `MarklitWrapper`), and the
-  * hoisting of inherited top-level definitions above the wrapper for normal
-  * blocks that depend on them.
+/** Compiler-level coverage for the `top-level` feature: blocks that compile verbatim as their own compilation unit (no
+  * `MarklitWrapper`), and the hoisting of inherited top-level definitions above the wrapper for normal blocks that
+  * depend on them.
   */
 object TopLevelCompileSpec extends ZIOSpecDefault:
 

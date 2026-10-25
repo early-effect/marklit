@@ -10,28 +10,24 @@ import specular.*
 import specular.ziotest.DocSpecSuite
 import zio.test.*
 
-/** Install coordinate. Always the last published tag. A bare next version is
-  * not on Central.
+/** Install coordinate. Always the last published tag. A bare next version is not on Central.
   */
 object DocsVersion:
   /** Last published tag (`v0.1.0`). Update this in the release commit. */
   val published = "0.1.0"
 
-  /** Returns [[published]]. A bare next version, `-ci`, `+`, and `SNAPSHOT` are
-    * unpublished.
+  /** Returns [[published]]. A bare next version, `-ci`, `+`, and `SNAPSHOT` are unpublished.
     */
   def advertise(raw: String): String =
     if raw.trim == published then published else published
 
-  /** `specular.meta.version` is the raw build version. Absent in unit tests, so
-    * those use [[published]].
+  /** `specular.meta.version` is the raw build version. Absent in unit tests, so those use [[published]].
     */
   def version: String =
     sys.props.get("specular.meta.version").map(advertise).getOrElse(published)
 end DocsVersion
 
-/** The site front. Specular still emits a summary index; [[BuildSite]] copies
-  * this page over it.
+/** The site front. Specular still emits a summary index; [[BuildSite]] copies this page over it.
   *
   * Not a sidebar item.
   */
@@ -41,9 +37,7 @@ object Front extends DocSpecSuite:
     s"""addSbtPlugin("rocks.earlyeffect" % "sbt-marklit" % "${DocsVersion.version}")"""
 
   /** Narrow enough for a 390px column after the content padding. */
-  private val figure = RenderConfig(layout =
-    LayoutConfig(hSpacing = 32, padding = 8, vSpacing = 36)
-  )
+  private val figure = RenderConfig(layout = LayoutConfig(hSpacing = 32, padding = 8, vSpacing = 36))
 
   private val pipeline =
     Mermaid("""flowchart TB
@@ -67,9 +61,8 @@ object Front extends DocSpecSuite:
     case e: UI.Element[Any] =>
       val here =
         if e.tag == "svg" then
-          e.attrs.collect {
-            case ascent.ast.Attr.StaticAttr("width", AttrValue.Str(raw)) =>
-              raw.toDoubleOption
+          e.attrs.collect { case ascent.ast.Attr.StaticAttr("width", AttrValue.Str(raw)) =>
+            raw.toDoubleOption
           }.flatten
         else Nil
       here.toList ++ e.children.toList.flatMap(svgWidths)

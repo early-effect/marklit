@@ -58,30 +58,26 @@ object Marklit:
   ): ZIO[Marklit, MarklitError, Vector[MarklitResult]] =
     ZIO.serviceWithZIO[Marklit](_.processFiles(paths))
 
-  /** Create a layer with a fixed default Compiler. Per-block version requests
-    * cannot resolve to a different compiler in this mode — the block will be
-    * compiled by the default compiler and may fail if the requested version
-    * differs significantly.
+  /** Create a layer with a fixed default Compiler. Per-block version requests cannot resolve to a different compiler in
+    * this mode — the block will be compiled by the default compiler and may fail if the requested version differs
+    * significantly.
     *
-    * Prefer [[layer]] for production, which wires in a [[CompilerFactory]]
-    * capable of materializing arbitrary Scala 3 versions on demand.
+    * Prefer [[layer]] for production, which wires in a [[CompilerFactory]] capable of materializing arbitrary Scala 3
+    * versions on demand.
     */
   def live: ZLayer[Compiler, Nothing, Marklit] =
     ZLayer.fromFunction { (compiler: Compiler) =>
       MarklitLive(CompilerServiceAdapter.fixed(compiler), ScopeMode.Isolated)
     }
 
-  /** Create a layer using a pre-built [[CompilerFactory]] and a default
-    * version. Per-block specific-version requests are resolved against the
-    * factory.
+  /** Create a layer using a pre-built [[CompilerFactory]] and a default version. Per-block specific-version requests
+    * are resolved against the factory.
     *
     * @param majorClasspaths
-    *   per-major classpath overrides: when a cross-version block requests Scala
-    *   major `m`, the adapter looks up `majorClasspaths(m)` and forwards that
-    *   to the factory's `forVersion`. When no entry exists for the requested
-    *   major, the cross-version compiler runs with no extra classpath (the safe
-    *   default — see `CompilerServiceAdapter.compilerFor` for why we don't
-    *   reuse the default-major classpath).
+    *   per-major classpath overrides: when a cross-version block requests Scala major `m`, the adapter looks up
+    *   `majorClasspaths(m)` and forwards that to the factory's `forVersion`. When no entry exists for the requested
+    *   major, the cross-version compiler runs with no extra classpath (the safe default — see
+    *   `CompilerServiceAdapter.compilerFor` for why we don't reuse the default-major classpath).
     */
   def liveWithFactory(
       defaultScalaVersion: String,
@@ -117,10 +113,8 @@ object Marklit:
       yield MarklitLive(adapter, scopeMode)
     }
 
-  /** Fully configured layer that resolves a default-version compiler via
-    * [[CompilerFactory]]. The factory caches by version, so when a document
-    * opts into a specific version the same factory instance returns the right
-    * compiler.
+  /** Fully configured layer that resolves a default-version compiler via [[CompilerFactory]]. The factory caches by
+    * version, so when a document opts into a specific version the same factory instance returns the right compiler.
     */
   val layer: ZLayer[Any, Throwable, Marklit] =
     CompilerFactory.layer >>> liveWithFactory(
@@ -131,18 +125,15 @@ end Marklit
 /** Adapter from Compiler(s) to CompilerService.
   *
   * Two flavors:
-  *   - [[fixed]] uses one Compiler for everything; per-block version requests
-  *     are ignored.
-  *   - [[fromFactory]] holds a default compiler and a factory; per-block
-  *     specific versions are resolved through the factory.
+  *   - [[fixed]] uses one Compiler for everything; per-block version requests are ignored.
+  *   - [[fromFactory]] holds a default compiler and a factory; per-block specific versions are resolved through the
+  *     factory.
   *
-  * Cache integration: if a non-noop [[BlockCache]] is supplied and the caller
-  * passes a [[Location]] with the request, we hash every input that affects raw
-  * compiler output (block code, prior code, effective version, classpath,
-  * scalac options, ZIO-app flag, source location) and consult the cache before
-  * invoking the underlying compiler. Missing entries are populated on
-  * write-back. Classpath jar content hashes are pre-computed once at adapter
-  * construction (per-bucket) so per-block hashing stays cheap.
+  * Cache integration: if a non-noop [[BlockCache]] is supplied and the caller passes a [[Location]] with the request,
+  * we hash every input that affects raw compiler output (block code, prior code, effective version, classpath, scalac
+  * options, ZIO-app flag, source location) and consult the cache before invoking the underlying compiler. Missing
+  * entries are populated on write-back. Classpath jar content hashes are pre-computed once at adapter construction
+  * (per-bucket) so per-block hashing stays cheap.
   */
 private final class CompilerServiceAdapter(
     defaultCompiler: Compiler,
@@ -157,11 +148,9 @@ private final class CompilerServiceAdapter(
 
   override def defaultScalaVersion: String = defaultCompiler.scalaVersion
 
-  /** Per-major defaults used to resolve bare-major requests (`scala=2`,
-    * `scala=3`). When the major matches the service's own default, that wins
-    * (handled by the trait's base implementation). Otherwise we fall back to
-    * the bundled shim version for the requested major — `defaultScalaVersion`
-    * for `3`, `defaultScala2Version` for `2`.
+  /** Per-major defaults used to resolve bare-major requests (`scala=2`, `scala=3`). When the major matches the
+    * service's own default, that wins (handled by the trait's base implementation). Otherwise we fall back to the
+    * bundled shim version for the requested major — `defaultScalaVersion` for `3`, `defaultScala2Version` for `2`.
     */
   override def defaultVersionForMajor(major: String): Option[String] =
     super.defaultVersionForMajor(major).orElse {
@@ -175,7 +164,7 @@ private final class CompilerServiceAdapter(
       requested: Option[String]
   ): IO[MarklitError, Compiler] =
     requested match
-      case None => ZIO.succeed(defaultCompiler)
+      case None                                         => ZIO.succeed(defaultCompiler)
       case Some(v) if v == defaultCompiler.scalaVersion =>
         ZIO.succeed(defaultCompiler)
       case Some(v) =>
@@ -195,12 +184,10 @@ private final class CompilerServiceAdapter(
 
   /** Build the per-block ScopeContext.
     *
-    * The output marker MUST be deterministic from the block's inputs: it is
-    * baked into the compiled class files at compile time (as a `print(marker)`
-    * call ahead of the user code) and then matched at execute time to strip
-    * prior-code replay output. Compile and execute go through separate adapter
-    * calls — if the marker were a fresh `UUID.randomUUID()` each time, the
-    * execute-time marker would never match the one in the .class files, and the
+    * The output marker MUST be deterministic from the block's inputs: it is baked into the compiled class files at
+    * compile time (as a `print(marker)` call ahead of the user code) and then matched at execute time to strip
+    * prior-code replay output. Compile and execute go through separate adapter calls — if the marker were a fresh
+    * `UUID.randomUUID()` each time, the execute-time marker would never match the one in the .class files, and the
     * marker would leak verbatim into the rendered output.
     */
   private def buildContext(
@@ -215,8 +202,7 @@ private final class CompilerServiceAdapter(
     // file scope. Otherwise mark only when there's prior run-body code to skip.
     val marker =
       if topLevel then None
-      else if priorCode.nonEmpty then
-        Some(blockMarker(code, priorCode, isZIOApp, topLevelPriorCode))
+      else if priorCode.nonEmpty then Some(blockMarker(code, priorCode, isZIOApp, topLevelPriorCode))
       else None
     ScopeContext(
       priorCode = priorCode,
@@ -250,21 +236,20 @@ private final class CompilerServiceAdapter(
 
   /** Pick the classpath + jar-content-hashes bucket appropriate to a request.
     *   - No version requested → default classpath/hashes.
-    *   - Same major as default → default classpath/hashes (the per-major bucket
-    *     is for a *different* major than this service's default).
+    *   - Same major as default → default classpath/hashes (the per-major bucket is for a *different* major than this
+    *     service's default).
     *   - Otherwise → per-major bucket if configured, empty otherwise.
     */
   private def classpathFor(
       requested: Option[String]
   ): (Vector[String], Vector[String]) =
     requested match
-      case None => (defaultClasspath, defaultClasspathHashes)
+      case None                                         => (defaultClasspath, defaultClasspathHashes)
       case Some(v) if v == defaultCompiler.scalaVersion =>
         (defaultClasspath, defaultClasspathHashes)
       case Some(v) =>
         val major = v.takeWhile(_ != '.')
-        if major == defaultCompiler.scalaVersion.takeWhile(_ != '.') then
-          (defaultClasspath, defaultClasspathHashes)
+        if major == defaultCompiler.scalaVersion.takeWhile(_ != '.') then (defaultClasspath, defaultClasspathHashes)
         else
           (
             majorClasspaths.getOrElse(major, Vector.empty),
@@ -369,16 +354,13 @@ private object CompilerServiceAdapter:
       majorHashes
     )
 
-  /** Hash each classpath entry's bytes (jar or class file) once at adapter
-    * construction so per-block cache keys don't have to re-read jars off disk
-    * on every block. Directories are hashed by listing their files and
-    * concatenating their (relative-path, size, mtime) triples — a cheap
-    * approximation that catches the cases we care about (recompilation changes
-    * class files' mtimes; adding a class file extends the listing).
+  /** Hash each classpath entry's bytes (jar or class file) once at adapter construction so per-block cache keys don't
+    * have to re-read jars off disk on every block. Directories are hashed by listing their files and concatenating
+    * their (relative-path, size, mtime) triples — a cheap approximation that catches the cases we care about
+    * (recompilation changes class files' mtimes; adding a class file extends the listing).
     *
-    * We deliberately use the path string as the fallback when a file can't be
-    * hashed (missing, permission, unusual): this still varies the key if the
-    * user's classpath layout changes, while never blowing up the build.
+    * We deliberately use the path string as the fallback when a file can't be hashed (missing, permission, unusual):
+    * this still varies the key if the user's classpath layout changes, while never blowing up the build.
     */
   private def hashClasspath(entries: Vector[String]): Vector[String] =
     entries.map { entry =>
