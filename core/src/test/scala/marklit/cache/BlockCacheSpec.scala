@@ -326,3 +326,4 @@ object BlockCacheSpec extends ZIOSpecDefault:
       }
     }
   )
+end BlockCacheSpec

@@ -5,12 +5,10 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Normalize classpath entries for scalac / dotc.
   *
-  * Those compilers only treat regular files ending in `.jar` / `.jmod` / `.zip`
-  * (or directories) as archives. sbt 2.0.4's content-addressed store
-  * materializes jars as extensionless CAS files (`…/sha256-…-<size>`), which
-  * URL classloaders accept but scalac silently skips — producing "Not found"
-  * errors for classes that are on the JVM classpath. Remap those to a temp
-  * `*.jar` link (or copy).
+  * Those compilers only treat regular files ending in `.jar` / `.jmod` / `.zip` (or directories) as archives. sbt
+  * 2.0.4's content-addressed store materializes jars as extensionless CAS files (`…/sha256-…-<size>`), which URL
+  * classloaders accept but scalac silently skips — producing "Not found" errors for classes that are on the JVM
+  * classpath. Remap those to a temp `*.jar` link (or copy).
   */
 private[marklit] object ClasspathEntries:
 
@@ -58,8 +56,7 @@ private[marklit] object ClasspathEntries:
     val dest = dir.resolve(source.getFileName.toString + ".jar")
     try Files.createSymbolicLink(dest, source)
     catch
-      case _: UnsupportedOperationException |
-          _: java.nio.file.FileSystemException =>
+      case _: UnsupportedOperationException | _: java.nio.file.FileSystemException =>
         Files.copy(source, dest, StandardCopyOption.REPLACE_EXISTING)
     dest.toFile.deleteOnExit()
     dest.toAbsolutePath.toString

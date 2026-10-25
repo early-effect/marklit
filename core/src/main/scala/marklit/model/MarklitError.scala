@@ -30,3 +30,4 @@ enum MarklitError:
       s"Runtime error: ${ex.getMessage}\nOutput: $output"
     case ValidationError(loc, msg) => s"Validation error at ${loc.pretty}: $msg"
     case ResolutionError(msg)      => s"Dependency resolution failed: $msg"
+end MarklitError

@@ -62,10 +62,9 @@ object MarklitPlugin extends AutoPlugin {
   override def requires: Plugins = plugins.JvmPlugin
   override def trigger: PluginTrigger = allRequirements
 
-  /** Filter scala-library / scala3-library jars out of a forwarded classpath.
-    * marklit resolves the per-version stdlib via Coursier; leaving the host
-    * project's stdlib on the classpath leaks its bin-TASTy into a different
-    * compile context.
+  /** Filter scala-library / scala3-library jars out of a forwarded classpath. marklit resolves the per-version stdlib
+    * via Coursier; leaving the host project's stdlib on the classpath leaks its bin-TASTy into a different compile
+    * context.
     */
   private def filterForwardedClasspath(cp: Seq[File]): Seq[File] =
     cp.filterNot { f =>
@@ -75,8 +74,8 @@ object MarklitPlugin extends AutoPlugin {
     }
 
   /** Resolve the real on-disk paths of a Classpath. sbt 2.0 classpaths are
-    * `Seq[Attributed[xsbti.HashedVirtualFileRef]]`; the converter turns each
-    * virtual ref into a `java.nio.file.Path` (then a `File`).
+    * `Seq[Attributed[xsbti.HashedVirtualFileRef]]`; the converter turns each virtual ref into a `java.nio.file.Path`
+    * (then a `File`).
     */
   private def classpathFiles(
       cp: Def.Classpath,
@@ -86,15 +85,13 @@ object MarklitPlugin extends AutoPlugin {
 
   /** Resolve a dep project's per-cross-version classes directory.
     *
-    * In sbt 2.0 the build output layout is
-    * `<base>/out/jvm/scala-<fullVersion>/<module>/classes`, and the `target`
-    * key for the dep is already scoped to the *current* session's Scala version
-    * (e.g. `.../out/jvm/scala-3.8.2/marklit-example-core`). To reach a
-    * different cross version we substitute the `scala-<version>` path segment.
+    * In sbt 2.0 the build output layout is `<base>/out/jvm/scala-<fullVersion>/<module>/classes`, and the `target` key
+    * for the dep is already scoped to the *current* session's Scala version (e.g.
+    * `.../out/jvm/scala-3.8.2/marklit-example-core`). To reach a different cross version we substitute the
+    * `scala-<version>` path segment.
     *
-    * For robustness we also emit the sbt 1.x candidates (`target/scala-<binV>`
-    * and `target/scala-<fullVersion>`); the caller filters by existence and
-    * picks the first that's present.
+    * For robustness we also emit the sbt 1.x candidates (`target/scala-<binV>` and `target/scala-<fullVersion>`); the
+    * caller filters by existence and picks the first that's present.
     */
   private def crossClassesDir(target: File, version: String): Seq[File] = {
     val major = version.takeWhile(_ != '.')
@@ -123,18 +120,14 @@ object MarklitPlugin extends AutoPlugin {
 
   /** Auto-discover per-major classpaths from this project's dependsOn graph.
     *
-    * For each project the docs module depends on (transitively), we look at its
-    * `crossScalaVersions`. For every cross-version that's a *different* major
-    * from the docs module's own scalaVersion, we add that project's expected
-    * cross-build classes directory to the per-major classpath. Cross-builds are
-    * produced automatically by the `marklitGenerate` / `marklitCompile`
-    * commands (which schedule `++ <v>! depProj/compile` ahead of the task
-    * invocation). When invoking the task directly via project scoping
-    * (`docs/marklitGenerate`), the user is responsible for having compiled the
-    * cross-builds first.
+    * For each project the docs module depends on (transitively), we look at its `crossScalaVersions`. For every
+    * cross-version that's a *different* major from the docs module's own scalaVersion, we add that project's expected
+    * cross-build classes directory to the per-major classpath. Cross-builds are produced automatically by the
+    * `marklitGenerate` / `marklitCompile` commands (which schedule `++ <v>! depProj/compile` ahead of the task
+    * invocation). When invoking the task directly via project scoping (`docs/marklitGenerate`), the user is responsible
+    * for having compiled the cross-builds first.
     */
-  private def autoMajorClasspaths
-      : Def.Initialize[Task[Map[String, Seq[File]]]] =
+  private def autoMajorClasspaths: Def.Initialize[Task[Map[String, Seq[File]]]] =
     Def.taskDyn {
       val docsMajor = scalaVersion.value.takeWhile(_ != '.')
       val deps = buildDependencies.value
@@ -148,17 +141,16 @@ object MarklitPlugin extends AutoPlugin {
           .value
         val depTargets = Keys.target.all(perDepFilter).value
 
-        val entries: Seq[(String, File)] = (depCrosses zip depTargets).flatMap {
-          case (versions, tgt) =>
-            versions
-              .filter(v => v.takeWhile(_ != '.') != docsMajor)
-              .flatMap { v =>
-                val major = v.takeWhile(_ != '.')
-                crossClassesDir(tgt, v)
-                  .filter(_.exists())
-                  .headOption
-                  .map(major -> _)
-              }
+        val entries: Seq[(String, File)] = (depCrosses zip depTargets).flatMap { case (versions, tgt) =>
+          versions
+            .filter(v => v.takeWhile(_ != '.') != docsMajor)
+            .flatMap { v =>
+              val major = v.takeWhile(_ != '.')
+              crossClassesDir(tgt, v)
+                .filter(_.exists())
+                .headOption
+                .map(major -> _)
+            }
         }
 
         entries
@@ -167,19 +159,15 @@ object MarklitPlugin extends AutoPlugin {
       }
     }
 
-  /** Compute the commands needed before invoking `taskName` on every project
-    * that has MarklitPlugin enabled.
+  /** Compute the commands needed before invoking `taskName` on every project that has MarklitPlugin enabled.
     *
     * The returned sequence is ordered:
-    *   1. `+ <depProj>/Compile/compile` for each unique cross-built dep project
-    *      (the `+` prefix iterates the dep's own `crossScalaVersions` and is
-    *      responsible for stashing & restoring session state — so we get back
-    *      to the user's original `scalaVersion` per project before the docs
-    *      task runs).
+    *   1. `+ <depProj>/Compile/compile` for each unique cross-built dep project (the `+` prefix iterates the dep's own
+    *      `crossScalaVersions` and is responsible for stashing & restoring session state — so we get back to the user's
+    *      original `scalaVersion` per project before the docs task runs).
     *   2. `<docsProj>/<taskName>` per marklit-enabled project.
     *
-    * Each dep project is cross-compiled at most once (de-duplicated across docs
-    * projects).
+    * Each dep project is cross-compiled at most once (de-duplicated across docs projects).
     */
   private def buildCrossCommands(
       state: State,
@@ -224,12 +212,11 @@ object MarklitPlugin extends AutoPlugin {
     }
   }
 
-  /** Build-level commands that schedule the necessary cross-version compiles
-    * before invoking each marklit-enabled project's task.
+  /** Build-level commands that schedule the necessary cross-version compiles before invoking each marklit-enabled
+    * project's task.
     *
-    * Why a command (and not a task)? sbt's `scalaVersion` is a setting, not a
-    * parameter to `compile`. The `+` cross-prefix is a *command-level* loop
-    * that re-applies the build with a different `scalaVersion` per cross
+    * Why a command (and not a task)? sbt's `scalaVersion` is a setting, not a parameter to `compile`. The `+`
+    * cross-prefix is a *command-level* loop that re-applies the build with a different `scalaVersion` per cross
     * version, then runs the suffix command.
     */
   private val marklitGenerateCommand: Command =

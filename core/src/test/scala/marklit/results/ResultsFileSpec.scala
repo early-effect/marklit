@@ -97,8 +97,7 @@ object ResultsFileSpec extends ZIOSpecDefault:
 
       test("serializes to and from JSON") {
         val docResult = DocumentResult(
-          blockResults =
-            Vector(makeBlockResult("val x = 1", output = Some("1"))),
+          blockResults = Vector(makeBlockResult("val x = 1", output = Some("1"))),
           processingTime = java.time.Duration.ofMillis(100)
         )
 
@@ -256,3 +255,4 @@ object ResultsFileSpec extends ZIOSpecDefault:
       }
     )
   )
+end ResultsFileSpec

@@ -2,9 +2,8 @@ package marklit.compiler
 
 import zio.*
 
-/** Layer that produces a default-version [[Compiler]] via [[CompilerFactory]]
-  * for tests that just need *some* working compiler. Reads the shim jar from
-  * the test classpath resource (wired in build.sbt's
+/** Layer that produces a default-version [[Compiler]] via [[CompilerFactory]] for tests that just need *some* working
+  * compiler. Reads the shim jar from the test classpath resource (wired in build.sbt's
   * `compiler/Test/resourceGenerators`).
   */
 object TestCompilerLayer:

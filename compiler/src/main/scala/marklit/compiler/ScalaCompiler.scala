@@ -8,40 +8,32 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
-/** Scala 3 compiler implementation that delegates the actual dotc invocation to
-  * a [[DotcInvoker]] living on a per-version classloader. The marklit JVM does
-  * not link against `dotty.tools.*` directly — see [[CompilerFactory]] for the
-  * classloader-isolation contract.
+/** Scala 3 compiler implementation that delegates the actual dotc invocation to a [[DotcInvoker]] living on a
+  * per-version classloader. The marklit JVM does not link against `dotty.tools.*` directly — see [[CompilerFactory]]
+  * for the classloader-isolation contract.
   *
-  * The classpath / scalacOptions / outputDir handling stays Scala-side: the
-  * shim takes a [[CompileRequest]] of those values and is itself version-
-  * neutral.
+  * The classpath / scalacOptions / outputDir handling stays Scala-side: the shim takes a [[CompileRequest]] of those
+  * values and is itself version- neutral.
   *
   * @param invoker
   *   the version-specific dotc invoker.
   * @param classpath
-  *   jars on the *user's* compile classpath (their fullClasspath, plus the
-  *   resolved scala3-library/compiler jars from the factory).
+  *   jars on the *user's* compile classpath (their fullClasspath, plus the resolved scala3-library/compiler jars from
+  *   the factory).
   * @param scalacOptions
   *   global options (e.g., from the build).
   * @param outputDir
-  *   writable directory where dotc emits .class files and the executor loads
-  *   them from.
+  *   writable directory where dotc emits .class files and the executor loads them from.
   * @param scalaVersion
-  *   reported version for filtering decisions in
-  *   [[marklit.processor.DocumentProcessor]].
+  *   reported version for filtering decisions in [[marklit.processor.DocumentProcessor]].
   * @param runtimeLoader
-  *   classloader used to resolve user-code classes at execution time. When
-  *   provided, this is the per-version compiler loader from the factory; when
-  *   None we fall back to `getClass.getClassLoader` (legacy in-process path).
+  *   classloader used to resolve user-code classes at execution time. When provided, this is the per-version compiler
+  *   loader from the factory; when None we fall back to `getClass.getClassLoader` (legacy in-process path).
   * @param shareUserClasses
-  *   when true, every block (including ZIO blocks) loads user classes
-  *   parent-first from [[runtimeLoader]] instead of child-first. This makes a
-  *   build-provided run resource a single shared instance across all blocks in
-  *   the run — at the cost of the per-block-fresh init that the child-first
-  *   loader otherwise gives ZIO blocks. Enabled only when a run resource is
-  *   configured (see [[CompilerFactory.userClassLoader]]); the default path is
-  *   unchanged.
+  *   when true, every block (including ZIO blocks) loads user classes parent-first from [[runtimeLoader]] instead of
+  *   child-first. This makes a build-provided run resource a single shared instance across all blocks in the run — at
+  *   the cost of the per-block-fresh init that the child-first loader otherwise gives ZIO blocks. Enabled only when a
+  *   run resource is configured (see [[CompilerFactory.userClassLoader]]); the default path is unchanged.
   */
 final class ScalaCompiler(
     invoker: DotcInvoker,
@@ -140,6 +132,7 @@ final class ScalaCompiler(
             classFilesDir = if resp.success() then Some(perBlockOut) else None
           )
         finally Files.deleteIfExists(sourceFile)
+        end try
       }
       .mapError(e =>
         MarklitError.CompileError(
@@ -160,8 +153,7 @@ final class ScalaCompiler(
       context: ScopeContext
   ): IO[MarklitError, ExecutionResult] =
     compile(code, context).flatMap { compileResult =>
-      if !compileResult.success then
-        ZIO.fail(MarklitError.CompileError(compileResult.errors))
+      if !compileResult.success then ZIO.fail(MarklitError.CompileError(compileResult.errors))
       else
         compileResult.classFilesDir match
           case Some(dir) => executeFromDir(dir, context)
@@ -224,8 +216,7 @@ final class ScalaCompiler(
               // classFilesDir, not in U) loads from the child URLs. ZIO blocks
               // use this path too — sharing is chosen over per-block-fresh init.
               new java.net.URLClassLoader(urls, parent)
-            else if context.isZIOApp then
-              new ChildFirstClassLoader(urls, parent)
+            else if context.isZIOApp then new ChildFirstClassLoader(urls, parent)
             else new java.net.URLClassLoader(urls, parent)
 
           // Redirect scala.Console on the *user code's* classloader. Each
@@ -256,8 +247,7 @@ final class ScalaCompiler(
           val newOutput = context.outputMarker match
             case Some(marker) =>
               val markerIdx = fullOutput.indexOf(marker)
-              if markerIdx >= 0 then
-                fullOutput.substring(markerIdx + marker.length)
+              if markerIdx >= 0 then fullOutput.substring(markerIdx + marker.length)
               else fullOutput
             case None => fullOutput
 
@@ -268,6 +258,7 @@ final class ScalaCompiler(
         finally
           java.lang.System.setOut(oldOut)
           java.lang.System.setErr(oldErr)
+        end try
       }
       .mapError { e =>
         val cause = e match
@@ -277,9 +268,8 @@ final class ScalaCompiler(
         MarklitError.RuntimeError(cause, "")
       }
 
-  /** Wrap code in an object so it can be compiled as a complete compilation
-    * unit. For Scala 3, uses indentation-sensitive syntax to avoid breaking
-    * user code. For Scala 2, uses brace syntax.
+  /** Wrap code in an object so it can be compiled as a complete compilation unit. For Scala 3, uses
+    * indentation-sensitive syntax to avoid breaking user code. For Scala 2, uses brace syntax.
     */
   private def wrapInObject(code: String): String =
     if isScala3 then
@@ -347,13 +337,10 @@ final class ScalaCompiler(
 
   /** Reflectively redirect `scala.Console.out` on the user-code classloader.
     *
-    * Each per-version classloader has its own `scala.Console$` Module object
-    * whose `out` field was captured from `System.out` the first time it was
-    * touched (typically during dotc's own compilation, before we redirected
-    * stdout). Calling `Console.withOut` on the marklit-loader's Console only
-    * affects the marklit-side Console — it's a different Class object from the
-    * user-loader's, so `println` from user code still goes to the original
-    * stream.
+    * Each per-version classloader has its own `scala.Console$` Module object whose `out` field was captured from
+    * `System.out` the first time it was touched (typically during dotc's own compilation, before we redirected stdout).
+    * Calling `Console.withOut` on the marklit-loader's Console only affects the marklit-side Console — it's a different
+    * Class object from the user-loader's, so `println` from user code still goes to the original stream.
     *
     * Returns a closure that restores the previous out.
     */
@@ -400,16 +387,16 @@ final class ScalaCompiler(
       // If the user classloader can't see scala.Console (e.g., a non-Scala
       // runtime path), there's nothing to redirect. Return a no-op.
       case _: ClassNotFoundException => () => ()
+end ScalaCompiler
 
 object ScalaCompiler:
-  /** Scala version returned by the bundled shim. Used as the fallback when no
-    * version is otherwise specified.
+  /** Scala version returned by the bundled shim. Used as the fallback when no version is otherwise specified.
     */
   def defaultScalaVersion: String =
     CompilerFactory.defaultScalaVersion
 
-/** Child-first classloader that loads classes from URLs before delegating to
-  * parent. Ensures libraries like ZIO get fresh initialization in each block.
+/** Child-first classloader that loads classes from URLs before delegating to parent. Ensures libraries like ZIO get
+  * fresh initialization in each block.
   */
 private class ChildFirstClassLoader(
     urls: Array[java.net.URL],
@@ -439,12 +426,12 @@ private class ChildFirstClassLoader(
       catch
         case _: ClassNotFoundException =>
           super.loadClass(name, resolve)
+end ChildFirstClassLoader
 
 private object ChildFirstClassLoader:
-  /** The platform classloader can load every JDK platform-module class
-    * (java.base, java.xml, java.sql, java.naming, the CORBA/RMI packages, …)
-    * regardless of package. It is the authoritative, version-current source for
-    * "is this a JDK class?" — far safer than enumerating package prefixes.
+  /** The platform classloader can load every JDK platform-module class (java.base, java.xml, java.sql, java.naming, the
+    * CORBA/RMI packages, …) regardless of package. It is the authoritative, version-current source for "is this a JDK
+    * class?" — far safer than enumerating package prefixes.
     */
   private val platformLoader: ClassLoader = ClassLoader.getPlatformClassLoader
 
@@ -453,3 +440,4 @@ private object ChildFirstClassLoader:
       platformLoader.loadClass(name)
       true
     catch case _: ClassNotFoundException => false
+end ChildFirstClassLoader

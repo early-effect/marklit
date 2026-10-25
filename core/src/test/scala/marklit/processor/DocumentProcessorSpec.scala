@@ -11,10 +11,9 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
 
   /** Test compiler that tracks calls and returns configurable results.
     *
-    * `defaultScalaVersion` is what the processor sees as the runtime default
-    * (used by bare-major filtering). Per-block specific-version requests (e.g.
-    * `scala=3.7.0`) are recorded in [[compileCallsWithVersion]] so tests can
-    * assert that the right version was demanded.
+    * `defaultScalaVersion` is what the processor sees as the runtime default (used by bare-major filtering). Per-block
+    * specific-version requests (e.g. `scala=3.7.0`) are recorded in [[compileCallsWithVersion]] so tests can assert
+    * that the right version was demanded.
     */
   class TestCompiler(
       compileResults: Map[String, CompileResult] = Map.empty,
@@ -86,6 +85,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
             .RuntimeError(new RuntimeException("crash"), "crash output")
         )
       else ZIO.succeed(executeResults.getOrElse(code, ""))
+  end TestCompiler
 
   def makeBlock(
       code: String,
@@ -279,8 +279,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
         val block = makeBlock("invalid syntax", Set(Modifier.Fail))
         val failResult = CompileResult(
           success = false,
-          diagnostics =
-            List(ScalaDiagnostic(DiagnosticSeverity.Error, "error", 1, 1, None))
+          diagnostics = List(ScalaDiagnostic(DiagnosticSeverity.Error, "error", 1, 1, None))
         )
         val compiler =
           new TestCompiler(compileResults = Map("invalid syntax" -> failResult))
@@ -324,9 +323,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
             )
           )
         )
-        val compiler = new TestCompiler(compileResults =
-          Map("val broken: String = 42" -> failResult)
-        )
+        val compiler = new TestCompiler(compileResults = Map("val broken: String = 42" -> failResult))
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -370,9 +367,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
             )
           )
         )
-        val compiler = new TestCompiler(compileResults =
-          Map("@deprecated val x = 1" -> warnResult)
-        )
+        val compiler = new TestCompiler(compileResults = Map("@deprecated val x = 1" -> warnResult))
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -661,9 +656,7 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
             )
           )
         )
-        val compiler = new TestCompiler(compileResults =
-          Map("val x: Int = \"string\"" -> errorResult)
-        )
+        val compiler = new TestCompiler(compileResults = Map("val x: Int = \"string\"" -> errorResult))
 
         for
           scopeManager <- ZIO.service[ScopeManager]
@@ -1397,3 +1390,4 @@ object DocumentProcessorSpec extends ZIOSpecDefault:
       }
     )
   ).provide(ScopeManager.layer) @@ TestAspect.sequential
+end DocumentProcessorSpec

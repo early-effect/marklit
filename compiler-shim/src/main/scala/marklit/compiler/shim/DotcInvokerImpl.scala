@@ -3,24 +3,16 @@ package marklit.compiler.shim
 import dotty.tools.dotc.Driver
 import dotty.tools.dotc.core.Contexts.Context
 import dotty.tools.dotc.reporting.{Diagnostic, Reporter}
-import marklit.compiler.api.{
-  CompileRequest,
-  CompileResponse,
-  Diag,
-  DotcInvoker,
-  Severity
-}
+import marklit.compiler.api.{CompileRequest, CompileResponse, Diag, DotcInvoker, Severity}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters.*
 
-/** The shim implementation. This is the ONLY class in marklit that imports
-  * `dotty.tools.dotc.*`. It is compiled into a small jar that travels with the
-  * CLI as a resource, and at runtime it is loaded from a custom URLClassLoader
+/** The shim implementation. This is the ONLY class in marklit that imports `dotty.tools.dotc.*`. It is compiled into a
+  * small jar that travels with the CLI as a resource, and at runtime it is loaded from a custom URLClassLoader
   * containing the user-requested `scala3-compiler` version.
   *
-  * The class must be public and have a no-arg constructor so the orchestrator
-  * can instantiate it via
+  * The class must be public and have a no-arg constructor so the orchestrator can instantiate it via
   * `Class.forName(...).getDeclaredConstructor().newInstance()`.
   */
 final class DotcInvokerImpl extends DotcInvoker:
@@ -56,12 +48,12 @@ final class DotcInvokerImpl extends DotcInvoker:
       .asJava
 
     new CompileResponse(!reporter.hasErrors, diags)
+  end compile
 
 end DotcInvokerImpl
 
-/** Diagnostic record local to the shim. Kept Scala-native for ergonomic
-  * collection here; we convert to the version-neutral `Diag` POJO at the
-  * boundary in `compile`.
+/** Diagnostic record local to the shim. Kept Scala-native for ergonomic collection here; we convert to the
+  * version-neutral `Diag` POJO at the boundary in `compile`.
   */
 private final case class ShimDiag(
     severity: Severity,
@@ -73,9 +65,8 @@ private final case class ShimDiag(
 
 /** Reporter that collects every diagnostic dotc emits during compilation.
   *
-  * Lives in the shim because it extends a dotc class — the JVM resolves
-  * `Reporter` (and `Diagnostic`, `Context`) through this class's defining
-  * classloader, which contains the per-version `scala3-compiler` jar.
+  * Lives in the shim because it extends a dotc class — the JVM resolves `Reporter` (and `Diagnostic`, `Context`)
+  * through this class's defining classloader, which contains the per-version `scala3-compiler` jar.
   */
 private final class CollectingReporter extends Reporter:
   private val _diagnostics = ArrayBuffer.empty[ShimDiag]
@@ -102,3 +93,5 @@ private final class CollectingReporter extends Reporter:
       else None
 
     _diagnostics += ShimDiag(severity, dia.message, line, column, file)
+  end doReport
+end CollectingReporter

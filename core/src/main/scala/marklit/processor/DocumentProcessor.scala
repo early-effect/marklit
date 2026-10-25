@@ -7,9 +7,8 @@ import zio.*
 
 /** A single per-version compile+execute attempt for a cross-version block.
   *
-  * Populated only for `scala=shared` / `scala=shared-{mv}` blocks, which are
-  * compiled and executed once per applicable version in the document. For
-  * non-shared blocks [[BlockResult.crossExecutions]] is empty.
+  * Populated only for `scala=shared` / `scala=shared-{mv}` blocks, which are compiled and executed once per applicable
+  * version in the document. For non-shared blocks [[BlockResult.crossExecutions]] is empty.
   */
 final case class BlockExecution(
     scalaVersion: String,
@@ -20,11 +19,10 @@ final case class BlockExecution(
 
 /** Result of processing a single code block.
   *
-  * For non-shared blocks, [[compileResult]] / [[executionOutput]] / [[error]]
-  * hold the single result and [[crossExecutions]] is empty. For shared blocks
-  * (`scala=shared`, `scala=shared-{mv}`) all per-version attempts are in
-  * [[crossExecutions]]; the legacy single fields mirror the *first*
-  * cross-execution so existing single-result consumers keep working.
+  * For non-shared blocks, [[compileResult]] / [[executionOutput]] / [[error]] hold the single result and
+  * [[crossExecutions]] is empty. For shared blocks (`scala=shared`, `scala=shared-{mv}`) all per-version attempts are
+  * in [[crossExecutions]]; the legacy single fields mirror the *first* cross-execution so existing single-result
+  * consumers keep working.
   */
 final case class BlockResult(
     block: CodeBlock,
@@ -48,17 +46,15 @@ final case class BlockResult(
 
   /** A block is successful if:
     *   - It was skipped (version mismatch), OR
-    *   - For non-shared blocks: compilation succeeded AND no unexpected errors
-    *     occurred. For crash blocks, a RuntimeError is expected and counts as
-    *     success.
-    *   - For shared blocks: every cross-version execution succeeded under the
-    *     same rules.
+    *   - For non-shared blocks: compilation succeeded AND no unexpected errors occurred. For crash blocks, a
+    *     RuntimeError is expected and counts as success.
+    *   - For shared blocks: every cross-version execution succeeded under the same rules.
     */
   def isSuccess: Boolean =
     if skipped then true
-    else if crossExecutions.nonEmpty then
-      crossExecutions.forall(x => isExecutionSuccess(x.compileResult, x.error))
+    else if crossExecutions.nonEmpty then crossExecutions.forall(x => isExecutionSuccess(x.compileResult, x.error))
     else isExecutionSuccess(compileResult, error)
+end BlockResult
 
 /** Result of processing an entire document */
 final case class DocumentResult(
@@ -67,9 +63,8 @@ final case class DocumentResult(
 ):
   def isSuccess: Boolean = blockResults.forall(_.isSuccess)
 
-  /** Returns unexpected errors (excludes expected RuntimeErrors from crash
-    * blocks). Walks per-version cross-executions for shared blocks so a failure
-    * on any single cross version is surfaced.
+  /** Returns unexpected errors (excludes expected RuntimeErrors from crash blocks). Walks per-version cross-executions
+    * for shared blocks so a failure on any single cross version is surfaced.
     */
   def errors: Vector[(CodeBlock, MarklitError)] =
     blockResults.flatMap { br =>
@@ -86,11 +81,11 @@ final case class DocumentResult(
   def compileErrors: Vector[(CodeBlock, List[ScalaDiagnostic])] =
     blockResults.flatMap { br =>
       val crs =
-        if br.crossExecutions.nonEmpty then
-          br.crossExecutions.flatMap(_.compileResult)
+        if br.crossExecutions.nonEmpty then br.crossExecutions.flatMap(_.compileResult)
         else br.compileResult.toVector
       crs.filterNot(_.success).map(cr => (br.block, cr.diagnostics))
     }
+end DocumentResult
 
 /** Processes markdown documents with Scala code blocks */
 trait DocumentProcessor:
@@ -103,29 +98,25 @@ object DocumentProcessor:
   ): ZIO[DocumentProcessor, MarklitError, DocumentResult] =
     ZIO.serviceWithZIO[DocumentProcessor](_.process(blocks))
 
-/** Compiler abstraction for DocumentProcessor - decoupled from actual compiler
-  * impl.
+/** Compiler abstraction for DocumentProcessor - decoupled from actual compiler impl.
   *
-  * `scalaVersion` is the version of the *default* compiler this service is
-  * bound to (used for filtering blocks that target a different major). When a
-  * block requests a specific version (e.g. `scala=3.7.0`), the service must
-  * obtain a compiler for that version via [[forVersion]].
+  * `scalaVersion` is the version of the *default* compiler this service is bound to (used for filtering blocks that
+  * target a different major). When a block requests a specific version (e.g. `scala=3.7.0`), the service must obtain a
+  * compiler for that version via [[forVersion]].
   */
 trait CompilerService:
   /** The default Scala version used when a block does not specify one. */
   def defaultScalaVersion: String
 
-  /** A default version for the requested major. Used to resolve bare-major
-    * scope-config requests (`scala=2`, `scala=3`) to a concrete version when
-    * the service's [[defaultScalaVersion]] is not in the requested major. The
-    * default for the matching major is [[defaultScalaVersion]] itself.
+  /** A default version for the requested major. Used to resolve bare-major scope-config requests (`scala=2`, `scala=3`)
+    * to a concrete version when the service's [[defaultScalaVersion]] is not in the requested major. The default for
+    * the matching major is [[defaultScalaVersion]] itself.
     *
-    * Returns `None` if marklit can't pick a default for that major (e.g. an
-    * unsupported major like `1`); the block is then skipped.
+    * Returns `None` if marklit can't pick a default for that major (e.g. an unsupported major like `1`); the block is
+    * then skipped.
     */
   def defaultVersionForMajor(major: String): Option[String] =
-    if defaultScalaVersion.takeWhile(_ != '.') == major then
-      Some(defaultScalaVersion)
+    if defaultScalaVersion.takeWhile(_ != '.') == major then Some(defaultScalaVersion)
     else None
 
   def compile(
@@ -149,9 +140,9 @@ trait CompilerService:
       topLevel: Boolean = false,
       topLevelPriorCode: Vector[String] = Vector.empty
   ): IO[MarklitError, String]
+end CompilerService
 
-/** Live implementation that processes blocks sequentially, respecting scope
-  * dependencies
+/** Live implementation that processes blocks sequentially, respecting scope dependencies
   */
 final class DocumentProcessorLive(
     scopeManager: ScopeManager,
@@ -161,9 +152,8 @@ final class DocumentProcessorLive(
 
   private val scalaVersion: String = compiler.defaultScalaVersion
 
-  /** Compute the version a block will be compiled against. Mirrors the
-    * precedence used by [[processBlock]]: per-block specific version, then
-    * bare-major, then `shared-{mv}` major, then service default.
+  /** Compute the version a block will be compiled against. Mirrors the precedence used by [[processBlock]]: per-block
+    * specific version, then bare-major, then `shared-{mv}` major, then service default.
     *
     * Returns `Left(())` when a bare-major has no default (block is skipped).
     */
@@ -182,13 +172,11 @@ final class DocumentProcessorLive(
                 compiler.defaultVersionForMajor(m).toRight(())
               case None => Right(scalaVersion)
 
-  /** Under page-scope, rewrite each otherwise-anonymous block's config to the
-    * exact shape a user could write by hand: the first such block (per Scala
-    * version) becomes `id=__page__<v>`, every subsequent one becomes
-    * `extends=__page__<v>, append`. Blocks that already carry an explicit
-    * `id`/`extends`/`append`, plus `passthrough`, `shared`, `fail`, `crash`,
-    * and `warn` blocks, are passed through untouched — they opt out of the page
-    * scope the same way they would in a hand-written file.
+  /** Under page-scope, rewrite each otherwise-anonymous block's config to the exact shape a user could write by hand:
+    * the first such block (per Scala version) becomes `id=__page__<v>`, every subsequent one becomes
+    * `extends=__page__<v>, append`. Blocks that already carry an explicit `id`/`extends`/`append`, plus `passthrough`,
+    * `shared`, `fail`, `crash`, and `warn` blocks, are passed through untouched — they opt out of the page scope the
+    * same way they would in a hand-written file.
     */
   private def applyPageScope(
       blocks: Vector[CodeBlock]
@@ -211,8 +199,7 @@ final class DocumentProcessorLive(
             case Right(v) =>
               val pageId = MarklitScope.pageIdFor(v)
               val newCfg =
-                if initialized.contains(pageId) then
-                  cfg.copy(extendsScope = Some(pageId), append = true)
+                if initialized.contains(pageId) then cfg.copy(extendsScope = Some(pageId), append = true)
                 else cfg.copy(id = Some(pageId))
               (acc :+ block.copy(scopeConfig = newCfg), initialized + pageId)
       }
@@ -285,6 +272,7 @@ final class DocumentProcessorLive(
             java.time.Duration.between(startTime, endTime)
           )
         }
+  end process
 
   private def processBlock(
       block: CodeBlock,
@@ -344,18 +332,15 @@ final class DocumentProcessorLive(
         case _ => (scalaVersion, None)
 
     // Handle passthrough blocks - no processing
-    if block.isPassthrough then
-      ZIO.succeed(BlockResult(block, None, None, None))
+    if block.isPassthrough then ZIO.succeed(BlockResult(block, None, None, None))
     // Skip when bare-major requests a major we have no default for.
-    else if resolvedVersion.contains(Left(())) then
-      ZIO.succeed(BlockResult(block, None, None, None, skipped = true))
+    else if resolvedVersion.contains(Left(())) then ZIO.succeed(BlockResult(block, None, None, None, skipped = true))
     // `scala=shared` / `scala=shared-{mv}` blocks fan out: compile+execute
     // once per applicable version in use, and never participate in a normal
     // (non-default) scope.
-    else if block.isAnyShared then
-      processSharedBlock(block, effectiveVersion, versionsInUse)
+    else if block.isAnyShared then processSharedBlock(block, effectiveVersion, versionsInUse)
     else
-      val effect = for
+      (for
         // Resolve scope and get inherited code, split into hoisted top-level
         // definitions (emitted at file scope) and run-body prior code.
         resolved <- scopeManager.resolveScope(
@@ -397,9 +382,7 @@ final class DocumentProcessorLive(
         executionOutput = execResult.output,
         error = execResult.error, // Captured error for crash blocks
         effectiveScalaVersion = Some(effectiveVersion)
-      )
-
-      effect.catchAll { error =>
+      )).catchAll { error =>
         ZIO.succeed(
           BlockResult(
             block,
@@ -410,12 +393,12 @@ final class DocumentProcessorLive(
           )
         )
       }
+    end if
+  end processBlockChecked
 
-  /** Fan-out path for `scala=shared` / `scala=shared-{mv}`: compile+execute the
-    * same source against every applicable version in use, gathering one
-    * [[BlockExecution]] per version. The block is already pre-seeded into each
-    * version's default-scope priorCode, so we strip the block's own code from
-    * the inherited prior to avoid compiling it twice.
+  /** Fan-out path for `scala=shared` / `scala=shared-{mv}`: compile+execute the same source against every applicable
+    * version in use, gathering one [[BlockExecution]] per version. The block is already pre-seeded into each version's
+    * default-scope priorCode, so we strip the block's own code from the inherited prior to avoid compiling it twice.
     */
   private def processSharedBlock(
       block: CodeBlock,
@@ -428,7 +411,7 @@ final class DocumentProcessorLive(
 
     ZIO
       .foreach(targets) { v =>
-        val effect = for
+        (for
           resolved <- scopeManager.resolveScope(
             ScopeConfig.empty,
             block.location,
@@ -447,9 +430,7 @@ final class DocumentProcessorLive(
           compileResult = Some(compileResult),
           executionOutput = execResult.output,
           error = execResult.error
-        )
-
-        effect.catchAll(err =>
+        )).catchAll(err =>
           ZIO.succeed(
             BlockExecution(
               scalaVersion = v,
@@ -471,6 +452,7 @@ final class DocumentProcessorLive(
           crossExecutions = execs
         )
       }
+  end processSharedBlock
 
   private def compileBlock(
       block: CodeBlock,
@@ -593,6 +575,7 @@ final class DocumentProcessorLive(
           }
       else doExecute.map(out => ExecResult(Some(out), None))
     else ZIO.succeed(ExecResult(None, None))
+end DocumentProcessorLive
 
 object DocumentProcessorLive:
   def layer: URLayer[ScopeManager & CompilerService, DocumentProcessor] =

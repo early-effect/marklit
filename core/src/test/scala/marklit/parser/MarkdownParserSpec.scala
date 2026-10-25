@@ -360,3 +360,4 @@ object MarkdownParserSpec extends ZIOSpecDefault:
       }
     )
   )
+end MarkdownParserSpec

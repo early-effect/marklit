@@ -59,8 +59,7 @@ object InfoStringParser:
 
   // Full info string: "scala" followed by optional "marklit:" or "mdoc:" and modifiers
   // We prefer "marklit:" but support "mdoc:" for compatibility
-  private def infoString[$: P]
-      : P[(Boolean, Seq[Either[String, (String, String)]])] =
+  private def infoString[$: P]: P[(Boolean, Seq[Either[String, (String, String)]])] =
     P(
       ws ~
         (scalaLang ~ ws ~
@@ -115,7 +114,7 @@ object InfoStringParser:
                 // them to the corresponding Modifier and leave scalaVersion
                 // unset so downstream code never sees "shared" as a version.
                 value.toLowerCase match
-                  case "shared" => modifiers += Modifier.Shared
+                  case "shared"                             => modifiers += Modifier.Shared
                   case other if other.startsWith("shared-") =>
                     val mv = other.stripPrefix("shared-")
                     if mv.nonEmpty then modifiers += Modifier.SharedMajor(mv)
@@ -133,3 +132,4 @@ object InfoStringParser:
       case _: Parsed.Failure =>
         // Parse failure - treat as non-scala passthrough
         ParsedInfoString(false, Set(Modifier.Passthrough), ScopeConfig.empty)
+end InfoStringParser

@@ -132,3 +132,4 @@ object MarklitRunSpec extends ZIOSpecDefault:
       yield assertTrue(exit.isFailure)
     }
   ) @@ TestAspect.sequential @@ TestAspect.timeout(120.seconds)
+end MarklitRunSpec

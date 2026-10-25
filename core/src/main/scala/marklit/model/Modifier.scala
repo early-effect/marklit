@@ -17,10 +17,8 @@ enum Modifier:
   case TopLevel // Compile verbatim as its own compilation unit (no wrapper)
 
 object Modifier:
-  /** Parse a modifier from its string representation. Shared / SharedMajor are
-    * not parsed here — they're constructed by
-    * [[marklit.parser.InfoStringParser]] from the `scala=shared` /
-    * `scala=shared-{mv}` info-string forms.
+  /** Parse a modifier from its string representation. Shared / SharedMajor are not parsed here — they're constructed by
+    * [[marklit.parser.InfoStringParser]] from the `scala=shared` / `scala=shared-{mv}` info-string forms.
     */
   def parse(s: String): Option[Modifier] = s.toLowerCase match
     case "silent"       => Some(Silent)
@@ -34,8 +32,8 @@ object Modifier:
     case "top-level"    => Some(TopLevel)
     case _              => None
 
-  /** Human-readable name for a modifier, matching its info-string spelling.
-    * Used in diagnostics (e.g. [[marklit.model.CodeBlock.modifierConflicts]]).
+  /** Human-readable name for a modifier, matching its info-string spelling. Used in diagnostics (e.g.
+    * [[marklit.model.CodeBlock.modifierConflicts]]).
     */
   def displayName(m: Modifier): String = m match
     case Silent         => "silent"
@@ -49,3 +47,4 @@ object Modifier:
     case Shared         => "scala=shared"
     case SharedMajor(m) => s"scala=shared-$m"
     case TopLevel       => "top-level"
+end Modifier

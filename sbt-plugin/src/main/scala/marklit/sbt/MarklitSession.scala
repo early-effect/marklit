@@ -5,16 +5,14 @@ import zio.{Exit, Runtime, Scope, Unsafe, ZIO}
 
 /** Session-scoped holder for a single [[CompilerFactory]] and a ZIO runtime.
   *
-  * This is the in-process replacement for the old out-of-process marklit
-  * daemon. `CompilerFactory.layer` is a *scoped* layer — it extracts the two
-  * shim jars to temp files and maintains a per-Scala-version cache of
-  * classloaders + reflective dotc invokers. By building it once and keeping its
-  * Scope open for the whole sbt session, every marklit task reuses the same
-  * warm per-version compilers; the second `marklitGenerate` skips the
-  * cold-start classloader/Coursier work entirely.
+  * This is the in-process replacement for the old out-of-process marklit daemon. `CompilerFactory.layer` is a *scoped*
+  * layer — it extracts the two shim jars to temp files and maintains a per-Scala-version cache of classloaders +
+  * reflective dotc invokers. By building it once and keeping its Scope open for the whole sbt session, every marklit
+  * task reuses the same warm per-version compilers; the second `marklitGenerate` skips the cold-start
+  * classloader/Coursier work entirely.
   *
-  * `shutdown()` is wired to the build's `Global / onUnload` so the scope (and
-  * its temp files) is released on sbt exit / reload.
+  * `shutdown()` is wired to the build's `Global / onUnload` so the scope (and its temp files) is released on sbt exit /
+  * reload.
   */
 object MarklitSession {
 
@@ -52,8 +50,8 @@ object MarklitSession {
   /** The runtime marklit effects are executed on. */
   def runtime(): Runtime[Any] = ensure().runtime
 
-  /** Release the session's CompilerFactory scope (temp shim jars, cached
-    * classloaders). Safe to call when nothing was ever initialized.
+  /** Release the session's CompilerFactory scope (temp shim jars, cached classloaders). Safe to call when nothing was
+    * ever initialized.
     */
   def shutdown(): Unit = synchronized {
     if (live != null) {

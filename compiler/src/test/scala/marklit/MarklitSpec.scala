@@ -7,9 +7,8 @@ import zio.test.*
 
 object MarklitSpec extends ZIOSpecDefault:
 
-  /** Layer that configures Marklit with `ScopeMode.Page` — the CLI/plugin
-    * opt-in that makes anonymous blocks share state per file. The default
-    * [[Marklit.layer]] uses `ScopeMode.Isolated`.
+  /** Layer that configures Marklit with `ScopeMode.Page` — the CLI/plugin opt-in that makes anonymous blocks share
+    * state per file. The default [[Marklit.layer]] uses `ScopeMode.Isolated`.
     */
   private val pageScopeLayer: ZLayer[Any, Throwable, Marklit] =
     CompilerFactory.layer >>> Marklit.liveWithFactory(
@@ -748,3 +747,4 @@ object MarklitSpec extends ZIOSpecDefault:
   ) @@ TestAspect.sequential @@ TestAspect.timeout(
     60.seconds
   )
+end MarklitSpec

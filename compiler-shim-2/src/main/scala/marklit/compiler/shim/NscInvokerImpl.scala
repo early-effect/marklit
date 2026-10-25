@@ -1,25 +1,18 @@
 package marklit.compiler.shim
 
-import marklit.compiler.api.{
-  CompileRequest,
-  CompileResponse,
-  Diag,
-  DotcInvoker,
-  Severity
-}
+import marklit.compiler.api.{CompileRequest, CompileResponse, Diag, DotcInvoker, Severity}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters._
 import scala.tools.nsc.reporters.StoreReporter
 import scala.tools.nsc.{Global, Settings}
 
-/** The 2.13 sibling of `DotcInvokerImpl`. The ONLY class in marklit that
-  * imports `scala.tools.nsc.*`. Compiled into a small jar bundled as a CLI
-  * resource and loaded at runtime from a per-version URLClassLoader holding the
+/** The 2.13 sibling of `DotcInvokerImpl`. The ONLY class in marklit that imports `scala.tools.nsc.*`. Compiled into a
+  * small jar bundled as a CLI resource and loaded at runtime from a per-version URLClassLoader holding the
   * user-requested `scala-compiler:2.13.x`.
   *
-  * Reuses the version-neutral `DotcInvoker` interface — the name is dotc-
-  * historical but the surface fits both compilers.
+  * Reuses the version-neutral `DotcInvoker` interface — the name is dotc- historical but the surface fits both
+  * compilers.
   */
 final class NscInvokerImpl extends DotcInvoker {
 

@@ -32,16 +32,14 @@ object DependencyResolver:
 
   // org::name:version (cross-built)
   private def crossBuiltCoord[$: P]: P[MavenCoord] =
-    P(coordPart ~ "::" ~ coordPart ~ ":" ~ coordPart).map {
-      case (org, name, version) =>
-        MavenCoord(org, name, version, crossBuilt = true)
+    P(coordPart ~ "::" ~ coordPart ~ ":" ~ coordPart).map { case (org, name, version) =>
+      MavenCoord(org, name, version, crossBuilt = true)
     }
 
   // org:name:version (exact artifact)
   private def exactCoord[$: P]: P[MavenCoord] =
-    P(coordPart ~ ":" ~ coordPart ~ ":" ~ coordPart).map {
-      case (org, name, version) =>
-        MavenCoord(org, name, version, crossBuilt = false)
+    P(coordPart ~ ":" ~ coordPart ~ ":" ~ coordPart).map { case (org, name, version) =>
+      MavenCoord(org, name, version, crossBuilt = false)
     }
 
   // Full coordinate parser - try cross-built first
@@ -123,8 +121,7 @@ object DependencyResolver:
 
         // Add custom repositories
         repositories.foreach { repoStr =>
-          if repoStr.startsWith("ivy:") then
-            fetch.addRepositories(IvyRepository.of(repoStr.stripPrefix("ivy:")))
+          if repoStr.startsWith("ivy:") then fetch.addRepositories(IvyRepository.of(repoStr.stripPrefix("ivy:")))
           else fetch.addRepositories(MavenRepository.of(repoStr))
         }
 
@@ -149,10 +146,9 @@ object DependencyResolver:
 
   /** Accumulated using directives from a document.
     *
-    * `dependencies`, `repositories`, and `scalacOptions` are insertion-ordered
-    * sets — duplicates within or across blocks collapse to a single entry,
-    * which prevents dotc/nsc from emitting "set repeatedly" warnings when the
-    * same flag appears in multiple blocks of one file.
+    * `dependencies`, `repositories`, and `scalacOptions` are insertion-ordered sets — duplicates within or across
+    * blocks collapse to a single entry, which prevents dotc/nsc from emitting "set repeatedly" warnings when the same
+    * flag appears in multiple blocks of one file.
     */
   case class UsingDirectives(
       dependencies: ListSet[String] = ListSet.empty,
@@ -170,14 +166,15 @@ object DependencyResolver:
 
     def isEmpty: Boolean =
       dependencies.isEmpty && scalaVersion.isEmpty && repositories.isEmpty && scalacOptions.isEmpty
+  end UsingDirectives
 
   extension (ud: UsingDirectives)
     def addDirective(d: Directive): UsingDirectives = d match
-      case Directive.Dep(v)    => ud.copy(dependencies = ud.dependencies + v)
-      case Directive.Deps(vs)  => ud.copy(dependencies = ud.dependencies ++ vs)
-      case Directive.Scala(v)  => ud.copy(scalaVersion = Some(v))
-      case Directive.Repo(v)   => ud.copy(repositories = ud.repositories + v)
-      case Directive.Repos(vs) => ud.copy(repositories = ud.repositories ++ vs)
+      case Directive.Dep(v)          => ud.copy(dependencies = ud.dependencies + v)
+      case Directive.Deps(vs)        => ud.copy(dependencies = ud.dependencies ++ vs)
+      case Directive.Scala(v)        => ud.copy(scalaVersion = Some(v))
+      case Directive.Repo(v)         => ud.copy(repositories = ud.repositories + v)
+      case Directive.Repos(vs)       => ud.copy(repositories = ud.repositories ++ vs)
       case Directive.ScalacOption(v) =>
         ud.copy(scalacOptions = ud.scalacOptions + v)
       case Directive.ScalacOptions(vs) =>
@@ -212,28 +209,27 @@ object DependencyResolver:
 
   // Using directive line: //> using key value(s)
   private def usingDirective[$: P]: P[Directive] =
-    P("//>" ~ ws ~ "using" ~ ws1 ~ identifier ~ ws1 ~ valueList).map {
-      case (key, values) =>
-        key.toLowerCase match
-          case "dep" | "dependency" | "lib" | "library" =>
-            if values.size == 1 then Directive.Dep(values.head)
-            else Directive.Deps(values)
-          case "deps" | "dependencies" | "libs" | "libraries" =>
-            Directive.Deps(values)
-          case "scala" =>
-            Directive.Scala(values.headOption.getOrElse(""))
-          case "repo" | "repository" =>
-            if values.size == 1 then Directive.Repo(values.head)
-            else Directive.Repos(values)
-          case "repos" | "repositories" =>
-            Directive.Repos(values)
-          case "option" | "scalac" =>
-            if values.size == 1 then Directive.ScalacOption(values.head)
-            else Directive.ScalacOptions(values)
-          case "options" =>
-            Directive.ScalacOptions(values)
-          case other =>
-            Directive.Unknown(other, values.mkString(", "))
+    P("//>" ~ ws ~ "using" ~ ws1 ~ identifier ~ ws1 ~ valueList).map { case (key, values) =>
+      key.toLowerCase match
+        case "dep" | "dependency" | "lib" | "library" =>
+          if values.size == 1 then Directive.Dep(values.head)
+          else Directive.Deps(values)
+        case "deps" | "dependencies" | "libs" | "libraries" =>
+          Directive.Deps(values)
+        case "scala" =>
+          Directive.Scala(values.headOption.getOrElse(""))
+        case "repo" | "repository" =>
+          if values.size == 1 then Directive.Repo(values.head)
+          else Directive.Repos(values)
+        case "repos" | "repositories" =>
+          Directive.Repos(values)
+        case "option" | "scalac" =>
+          if values.size == 1 then Directive.ScalacOption(values.head)
+          else Directive.ScalacOptions(values)
+        case "options" =>
+          Directive.ScalacOptions(values)
+        case other =>
+          Directive.Unknown(other, values.mkString(", "))
     }
 
   // Try to parse a line as a using directive
@@ -259,8 +255,8 @@ object DependencyResolver:
       acc.merge(parseUsingDirectives(code))
     }
 
-  /** Resolve Scala library jars for compilation. For Scala 3, only need
-    * scala3-library which transitively brings in scala-library.
+  /** Resolve Scala library jars for compilation. For Scala 3, only need scala3-library which transitively brings in
+    * scala-library.
     *
     * @param scalaVersion
     *   Full Scala version (e.g., "3.8.2")
@@ -283,25 +279,22 @@ object DependencyResolver:
         Vector(
           Dependency.of("org.scala-lang", "scala3-library_3", scalaVersion)
         )
-      else
-        Vector(Dependency.of("org.scala-lang", "scala-library", scalaVersion))
+      else Vector(Dependency.of("org.scala-lang", "scala-library", scalaVersion))
 
     val fetch = Fetch.create().addDependencies(deps*)
     fetch.fetch().asScala.toVector.map(_.getAbsolutePath)
+  end resolveScalaLibrarySync
 
-  /** Resolve compiler jars (with all transitive deps, including the matching
-    * stdlib). Used by CompilerFactory to build a per-version classloader for
-    * invoking either dotc (Scala 3) or nsc (Scala 2.13) reflectively.
+  /** Resolve compiler jars (with all transitive deps, including the matching stdlib). Used by CompilerFactory to build
+    * a per-version classloader for invoking either dotc (Scala 3) or nsc (Scala 2.13) reflectively.
     *
-    * Scala 2.13.x maps to `org.scala-lang:scala-compiler:<version>`. Earlier
-    * 2.x lines (2.12, 2.11) are explicitly rejected — marklit only supports
-    * 2.13 and 3.x.
+    * Scala 2.13.x maps to `org.scala-lang:scala-compiler:<version>`. Earlier 2.x lines (2.12, 2.11) are explicitly
+    * rejected — marklit only supports 2.13 and 3.x.
     *
     * @param scalaVersion
     *   Full Scala version (e.g. "3.7.0", "2.13.16").
     * @return
-    *   List of JAR file paths sufficient to invoke the matching compiler. Order
-    *   is the URLClassLoader scan order.
+    *   List of JAR file paths sufficient to invoke the matching compiler. Order is the URLClassLoader scan order.
     */
   def resolveScalaCompiler(scalaVersion: String): Task[Vector[String]] =
     ZIO.attemptBlocking {
@@ -311,10 +304,8 @@ object DependencyResolver:
   /** Synchronous version for use in CompilerFactory initialization */
   def resolveScalaCompilerSync(scalaVersion: String): Vector[String] =
     val dep =
-      if scalaVersion.startsWith("3") then
-        Dependency.of("org.scala-lang", "scala3-compiler_3", scalaVersion)
-      else if scalaVersion.startsWith("2.13") then
-        Dependency.of("org.scala-lang", "scala-compiler", scalaVersion)
+      if scalaVersion.startsWith("3") then Dependency.of("org.scala-lang", "scala3-compiler_3", scalaVersion)
+      else if scalaVersion.startsWith("2.13") then Dependency.of("org.scala-lang", "scala-compiler", scalaVersion)
       else
         throw new IllegalArgumentException(
           s"Unsupported Scala version '$scalaVersion'. Marklit supports 2.13.x and 3.x; earlier 2.x lines are not supported."
@@ -326,3 +317,4 @@ object DependencyResolver:
       .asScala
       .toVector
       .map(_.getAbsolutePath)
+end DependencyResolver

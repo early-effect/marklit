@@ -3,9 +3,8 @@ package marklit.resolver
 import zio.Scope
 import zio.test.*
 
-/** Integration tests for DependencyResolver's Coursier-backed helpers. These
-  * tests hit the local Coursier cache (or fetch on first run); they don't
-  * depend on the test JVM's classpath layout.
+/** Integration tests for DependencyResolver's Coursier-backed helpers. These tests hit the local Coursier cache (or
+  * fetch on first run); they don't depend on the test JVM's classpath layout.
   */
 object DependencyResolverSpec extends ZIOSpecDefault:
 
@@ -77,3 +76,4 @@ object DependencyResolverSpec extends ZIOSpecDefault:
         }
       )
     ) @@ TestAspect.sequential
+end DependencyResolverSpec

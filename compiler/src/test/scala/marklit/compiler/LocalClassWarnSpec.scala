@@ -4,16 +4,13 @@ import marklit.model.*
 import zio.*
 import zio.test.*
 
-/** Regression coverage for the core value proposition of `top-level`: a
-  * parameterized enum case matched against a non-local scrutinee type emits
-  * `the type test for X cannot be checked at runtime because it's a local
-  * class` when the enum is defined *inside* `def run()` (a local class). When
-  * the enum is hoisted to file scope (a real top-level class), the type test is
-  * checkable and the warning disappears.
+/** Regression coverage for the core value proposition of `top-level`: a parameterized enum case matched against a
+  * non-local scrutinee type emits `the type test for X cannot be checked at runtime because it's a local class` when
+  * the enum is defined *inside* `def run()` (a local class). When the enum is hoisted to file scope (a real top-level
+  * class), the type test is checkable and the warning disappears.
   *
-  * This is exactly the warning that forced `show-warnings=false` on the conduit
-  * docs; `top-level` lets authors drop that workaround. Verified against the
-  * bundled Scala shim.
+  * This is exactly the warning that forced `show-warnings=false` on the conduit docs; `top-level` lets authors drop
+  * that workaround. Verified against the bundled Scala shim.
   */
 object LocalClassWarnSpec extends ZIOSpecDefault:
 
@@ -66,3 +63,4 @@ object LocalClassWarnSpec extends ZIOSpecDefault:
   ).provideShared(TestCompilerLayer.layer) @@ TestAspect.timeout(
     120.seconds
   ) @@ TestAspect.withLiveClock @@ TestAspect.sequential
+end LocalClassWarnSpec

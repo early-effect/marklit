@@ -835,3 +835,4 @@ object MarkdownRendererSpec extends ZIOSpecDefault:
       }
     )
   )
+end MarkdownRendererSpec

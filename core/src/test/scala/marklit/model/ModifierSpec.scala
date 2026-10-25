@@ -38,3 +38,4 @@ object ModifierSpec extends ZIOSpecDefault:
       }
     )
   )
+end ModifierSpec

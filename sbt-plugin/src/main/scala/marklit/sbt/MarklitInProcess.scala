@@ -4,24 +4,20 @@ import marklit.{MarklitRun, MarklitRunConfig, MarklitRunResult}
 import sbt.{Logger, MessageOnlyException}
 import zio.Unsafe
 
-/** Bridges the sbt plugin's task values to the in-process marklit orchestrator
-  * ([[marklit.MarklitRun]]) and translates the structured result back into sbt
-  * logging + failure semantics.
+/** Bridges the sbt plugin's task values to the in-process marklit orchestrator ([[marklit.MarklitRun]]) and translates
+  * the structured result back into sbt logging + failure semantics.
   *
-  * Execution is serialized on a single monitor:
-  * [[marklit.compiler.ScalaCompiler]] redirects `System.out`/`System.err` at
-  * the JVM level while a block executes, which is unsafe if two marklit tasks
-  * run concurrently inside the same sbt JVM. The old daemon serialized via its
-  * RPC lock; this preserves that.
+  * Execution is serialized on a single monitor: [[marklit.compiler.ScalaCompiler]] redirects `System.out`/`System.err`
+  * at the JVM level while a block executes, which is unsafe if two marklit tasks run concurrently inside the same sbt
+  * JVM. The old daemon serialized via its RPC lock; this preserves that.
   */
 object MarklitInProcess {
 
   // Process-wide lock: only one marklit run touches System.out at a time.
   private val executionLock = new AnyRef
 
-  /** Run marklit over `config` on the warm session factory. Logs the facade's
-    * notices and per-file summaries, and throws [[MessageOnlyException]] (the
-    * sbt idiom for a clean task failure) when any file failed.
+  /** Run marklit over `config` on the warm session factory. Logs the facade's notices and per-file summaries, and
+    * throws [[MessageOnlyException]] (the sbt idiom for a clean task failure) when any file failed.
     *
     * @param taskLabel
     *   "compilation" / "generation" — used in the failure message.

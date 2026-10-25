@@ -9,13 +9,10 @@ final case class ScopeContext(
     priorCode: Vector[String] = Vector.empty,
     classpath: Vector[String] = Vector.empty,
     scalacOptions: Vector[String] = Vector.empty,
-    outputMarker: Option[String] =
-      None, // UUID marker to identify where new output starts
+    outputMarker: Option[String] = None, // UUID marker to identify where new output starts
     isZIOApp: Boolean = false, // Wrap in ZIOAppDefault instead of plain object
-    topLevel: Boolean =
-      false, // Compile this block verbatim as its own compilation unit
-    topLevelPriorCode: Vector[String] =
-      Vector.empty // Inherited definitions hoisted ABOVE the wrapper
+    topLevel: Boolean = false, // Compile this block verbatim as its own compilation unit
+    topLevelPriorCode: Vector[String] = Vector.empty // Inherited definitions hoisted ABOVE the wrapper
 ):
   def append(code: String): ScopeContext =
     copy(priorCode = priorCode :+ code)
@@ -23,12 +20,12 @@ final case class ScopeContext(
   def allCode: String =
     priorCode.mkString("\n\n")
 
-  /** Inherited top-level definitions, joined, to emit at file scope (above the
-    * `MarklitWrapper` object for normal blocks, or as the whole unit for
-    * top-level blocks).
+  /** Inherited top-level definitions, joined, to emit at file scope (above the `MarklitWrapper` object for normal
+    * blocks, or as the whole unit for top-level blocks).
     */
   def hoistedCode: String =
     topLevelPriorCode.mkString("\n\n")
+end ScopeContext
 
 object ScopeContext:
   val empty: ScopeContext = ScopeContext()
@@ -44,9 +41,8 @@ trait Compiler:
       context: ScopeContext
   ): IO[MarklitError, CompileResult]
 
-  /** Execute previously compiled code and capture output. Implementations may
-    * recompile internally if they don't carry the per-block class files around
-    * — prefer [[executeFromDir]] when you already have a
+  /** Execute previously compiled code and capture output. Implementations may recompile internally if they don't carry
+    * the per-block class files around — prefer [[executeFromDir]] when you already have a
     * [[CompileResult.classFilesDir]] in hand.
     */
   def execute(
@@ -54,9 +50,8 @@ trait Compiler:
       context: ScopeContext
   ): IO[MarklitError, ExecutionResult]
 
-  /** Execute the wrapper class loaded from [[classFilesDir]] directly, without
-    * recompiling. The directory must be the one returned by a prior successful
-    * [[compile]] (or restored from the cache).
+  /** Execute the wrapper class loaded from [[classFilesDir]] directly, without recompiling. The directory must be the
+    * one returned by a prior successful [[compile]] (or restored from the cache).
     */
   def executeFromDir(
       classFilesDir: java.nio.file.Path,
@@ -77,6 +72,7 @@ trait Compiler:
             case None    => execute(code, context)
         else ZIO.succeed(ExecutionResult("", Map.empty))
     yield (compileResult, execResult)
+end Compiler
 
 object Compiler:
   def compile(
@@ -96,3 +92,4 @@ object Compiler:
       context: ScopeContext
   ): ZIO[Compiler, MarklitError, (CompileResult, ExecutionResult)] =
     ZIO.serviceWithZIO[Compiler](_.compileAndExecute(code, context))
+end Compiler

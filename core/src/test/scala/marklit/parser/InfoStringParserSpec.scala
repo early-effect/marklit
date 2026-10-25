@@ -183,3 +183,4 @@ object InfoStringParserSpec extends ZIOSpecDefault:
       }
     )
   )
+end InfoStringParserSpec

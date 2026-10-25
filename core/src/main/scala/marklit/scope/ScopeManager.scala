@@ -5,12 +5,10 @@ import zio.*
 
 /** A scope node in the scope tree.
   *
-  * `topLevel` marks a scope whose code is compiled at file scope (no
-  * `MarklitWrapper` wrapper). Each scope is single-kind: top-level scopes hold
-  * only top-level definitions, normal scopes hold run-body code. A top-level
-  * scope can only be extended/appended by another top-level scope; a normal
-  * scope may *extend* (but not append to) a top-level scope, hoisting its
-  * definitions above the wrapper.
+  * `topLevel` marks a scope whose code is compiled at file scope (no `MarklitWrapper` wrapper). Each scope is
+  * single-kind: top-level scopes hold only top-level definitions, normal scopes hold run-body code. A top-level scope
+  * can only be extended/appended by another top-level scope; a normal scope may *extend* (but not append to) a
+  * top-level scope, hoisting its definitions above the wrapper.
   */
 final case class Scope(
     id: String,
@@ -23,24 +21,23 @@ final case class Scope(
     copy(priorCode = priorCode :+ code)
 
   def allCode: String = priorCode.mkString("\n\n")
+end Scope
 
 object Scope:
-  /** Legacy single-default id, kept as the bare-version default for blocks
-    * resolved without an effective Scala version. New per-version default ids
-    * are produced by [[defaultIdFor]].
+  /** Legacy single-default id, kept as the bare-version default for blocks resolved without an effective Scala version.
+    * New per-version default ids are produced by [[defaultIdFor]].
     */
   val defaultId = "__default__"
 
-  /** Default-scope id for a specific Scala version (e.g. "__default__3.7.3").
-    * If `version` is empty, returns [[defaultId]] for backward compatibility.
+  /** Default-scope id for a specific Scala version (e.g. "__default__3.7.3"). If `version` is empty, returns
+    * [[defaultId]] for backward compatibility.
     */
   def defaultIdFor(version: String): String =
     if version.isEmpty then defaultId else s"${defaultId}${version}"
 
-  /** Page-scope id for a specific Scala version. Used when the CLI/plugin opts
-    * a file into shared-by-default behavior: every anonymous block extends this
-    * scope (with `append`), parented to the per-version default so `shared`
-    * blocks still seed it.
+  /** Page-scope id for a specific Scala version. Used when the CLI/plugin opts a file into shared-by-default behavior:
+    * every anonymous block extends this scope (with `append`), parented to the per-version default so `shared` blocks
+    * still seed it.
     */
   val pageId = "__page__"
   def pageIdFor(version: String): String =
@@ -58,54 +55,52 @@ object Scope:
       topLevel: Boolean = false
   ): Scope =
     Scope(id, scalaVersion, Vector.empty, parent, topLevel)
+end Scope
 
 /** Result of resolving a scope for a code block.
   *
-  * `inheritedTopLevel` / `inheritedBody` are the ancestor code split by kind:
-  * code from top-level ancestor scopes (hoisted above the wrapper) vs. code
-  * from normal ancestor scopes (run-body). Because a top-level scope can only
-  * be extended by another top-level scope, top-level ancestors always form a
-  * prefix of the chain, so `inheritedTopLevel ++ inheritedBody` preserves the
-  * original ancestor order.
+  * `inheritedTopLevel` / `inheritedBody` are the ancestor code split by kind: code from top-level ancestor scopes
+  * (hoisted above the wrapper) vs. code from normal ancestor scopes (run-body). Because a top-level scope can only be
+  * extended by another top-level scope, top-level ancestors always form a prefix of the chain, so
+  * `inheritedTopLevel ++ inheritedBody` preserves the original ancestor order.
   */
 final case class ResolvedScope(
     scope: Scope,
     inheritedTopLevel: Vector[String],
     inheritedBody: Vector[String]
 ):
-  /** Flat inherited code in ancestor order (top-level ancestors first). Kept
-    * for callers that don't care about hoist placement.
+  /** Flat inherited code in ancestor order (top-level ancestors first). Kept for callers that don't care about hoist
+    * placement.
     */
   def inheritedCode: Vector[String] = inheritedTopLevel ++ inheritedBody
 
-  /** Definitions to emit at file scope: inherited top-level ancestor code, plus
-    * this scope's own code when it is itself a top-level scope.
+  /** Definitions to emit at file scope: inherited top-level ancestor code, plus this scope's own code when it is itself
+    * a top-level scope.
     */
   def hoistCode: Vector[String] =
     if scope.topLevel then inheritedTopLevel ++ scope.priorCode
     else inheritedTopLevel
 
-  /** Code to emit in the wrapper body: inherited normal-ancestor code, plus
-    * this scope's own code when it is a normal scope.
+  /** Code to emit in the wrapper body: inherited normal-ancestor code, plus this scope's own code when it is a normal
+    * scope.
     */
   def bodyCode: Vector[String] =
     if scope.topLevel then inheritedBody
     else inheritedBody ++ scope.priorCode
 
-  /** All code in order: inherited from ancestors + this scope's accumulated
-    * code
+  /** All code in order: inherited from ancestors + this scope's accumulated code
     */
   def allCode: String =
     (inheritedCode ++ scope.priorCode).mkString("\n\n")
+end ResolvedScope
 
 /** Manages scope trees for markdown document processing */
 trait ScopeManager:
   /** Get or create a scope for a code block based on its config.
     *
-    * `effectiveVersion` is the Scala version this block will be compiled
-    * against (block override > file default > CLI default). When the block has
-    * no explicit scope (`config` is empty of id/extends/append), we resolve to
-    * a per-version default scope keyed by `effectiveVersion`.
+    * `effectiveVersion` is the Scala version this block will be compiled against (block override > file default > CLI
+    * default). When the block has no explicit scope (`config` is empty of id/extends/append), we resolve to a
+    * per-version default scope keyed by `effectiveVersion`.
     */
   def resolveScope(
       config: ScopeConfig,
@@ -114,11 +109,10 @@ trait ScopeManager:
       topLevel: Boolean = false
   ): IO[MarklitError, ResolvedScope]
 
-  /** Seed a per-version default scope's prior code (used to inject `shared` /
-    * `shared-{mv}` blocks before any block of that version is processed).
+  /** Seed a per-version default scope's prior code (used to inject `shared` / `shared-{mv}` blocks before any block of
+    * that version is processed).
     *
-    * Idempotent against the same `(version, code)` pair: appends only if the
-    * exact code isn't already present.
+    * Idempotent against the same `(version, code)` pair: appends only if the exact code isn't already present.
     */
   def seedDefaultPriorCode(version: String, code: String): UIO[Unit]
 
@@ -131,6 +125,7 @@ trait ScopeManager:
   /** Get scopes that can be compiled in parallel (no dependencies between them)
     */
   def independentScopes: UIO[Vector[Set[String]]]
+end ScopeManager
 
 object ScopeManager:
   def resolveScope(
@@ -163,6 +158,7 @@ object ScopeManager:
   /** Create a new ScopeManager instance */
   def make: UIO[ScopeManager] =
     Ref.make(ScopeState.empty).map(ScopeManagerLive(_))
+end ScopeManager
 
 /** Internal state for scope management */
 private final case class ScopeState(
@@ -201,6 +197,7 @@ private final case class ScopeState(
   def descendants(id: String): Set[String] =
     val direct = children.getOrElse(id, Set.empty)
     direct ++ direct.flatMap(descendants)
+end ScopeState
 
 private object ScopeState:
   val empty: ScopeState = ScopeState(
@@ -210,8 +207,7 @@ private object ScopeState:
   )
 
 /** Live implementation of ScopeManager */
-private final class ScopeManagerLive(stateRef: Ref[ScopeState])
-    extends ScopeManager:
+private final class ScopeManagerLive(stateRef: Ref[ScopeState]) extends ScopeManager:
 
   override def resolveScope(
       config: ScopeConfig,
@@ -291,8 +287,7 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
     // at creation.
     def sameKindError(existing: Scope): Option[MarklitError] =
       if existing.topLevel == topLevel then None
-      else
-        Some(MarklitError.ValidationError(location, kindMismatch(existing.id)))
+      else Some(MarklitError.ValidationError(location, kindMismatch(existing.id)))
 
     (config.id, config.extendsScope, config.append) match
       // No scope config - fresh anonymous scope per block (isolated by
@@ -406,8 +401,7 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
                           case None      =>
                             // Re-use of `id=foo` must not flip the version.
                             (config.scalaVersion, existing.scalaVersion) match
-                              case (Some(reqV), Some(existingV))
-                                  if reqV != existingV =>
+                              case (Some(reqV), Some(existingV)) if reqV != existingV =>
                                 (
                                   Left(
                                     MarklitError.ValidationError(
@@ -542,12 +536,12 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
           ),
           state
         )
+    end match
+  end resolveInternal
 
-  /** Collect all code from ancestors in order (oldest first), split by scope
-    * kind: `(topLevelCode, bodyCode)`. Because a top-level scope can only be
-    * extended by another top-level scope, top-level ancestors always form a
-    * prefix of the chain — so concatenating `topLevelCode ++ bodyCode` recovers
-    * the original ancestor order.
+  /** Collect all code from ancestors in order (oldest first), split by scope kind: `(topLevelCode, bodyCode)`. Because
+    * a top-level scope can only be extended by another top-level scope, top-level ancestors always form a prefix of the
+    * chain — so concatenating `topLevelCode ++ bodyCode` recovers the original ancestor order.
     */
   private def collectInheritedCode(
       scopeId: String,
@@ -587,3 +581,4 @@ private final class ScopeManagerLive(stateRef: Ref[ScopeState])
       val byRoot = state.scopes.keys.groupBy(findRoot)
       byRoot.values.map(_.toSet).toVector
     }
+end ScopeManagerLive

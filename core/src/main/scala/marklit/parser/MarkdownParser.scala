@@ -20,31 +20,27 @@ final case class ParsedDocument(
 
 /** Parser for markdown documents with Scala code blocks.
   *
-  * The parser is intentionally minimal: it recognizes CommonMark fenced code
-  * blocks and treats everything else as opaque text. The CommonMark fence rules
-  * implemented here:
+  * The parser is intentionally minimal: it recognizes CommonMark fenced code blocks and treats everything else as
+  * opaque text. The CommonMark fence rules implemented here:
   *
   *   - Opener may be indented 0–3 spaces (4+ would be an indented code block).
   *   - Fence character is `` ` `` or `~`, repeated at least 3 times.
   *   - Closer must use the same character as the opener, at length ≥ opener.
-  *   - Closer line may have only whitespace after the fence; non-whitespace
-  *     trailing content disqualifies it as a closer.
+  *   - Closer line may have only whitespace after the fence; non-whitespace trailing content disqualifies it as a
+  *     closer.
   *   - Backtick-fence info strings may not contain `` ` ``.
   *   - An unterminated fence is implicitly closed at EOF.
   *   - Content lines have up to opener-indent leading spaces stripped.
   *
-  * Input line endings (`\r\n`, lone `\r`) are normalized to `\n` before parsing
-  * so that line counts remain accurate and the grammar can speak in terms of
-  * `\n` only.
+  * Input line endings (`\r\n`, lone `\r`) are normalized to `\n` before parsing so that line counts remain accurate and
+  * the grammar can speak in terms of `\n` only.
   */
 object MarkdownParser:
 
-  /** Internal block-level AST. Public callers see [[MarkdownSegment]]; this
-    * intermediate AST exists so the parser can preserve fence metadata (indent,
-    * char, length) for richer error reporting and future renderer fidelity. The
-    * renderer currently normalizes fences to ``` so most of this metadata is
-    * unused downstream — but it's a free byproduct of the spec-correct parser
-    * and useful for diagnostics.
+  /** Internal block-level AST. Public callers see [[MarkdownSegment]]; this intermediate AST exists so the parser can
+    * preserve fence metadata (indent, char, length) for richer error reporting and future renderer fidelity. The
+    * renderer currently normalizes fences to ``` so most of this metadata is unused downstream — but it's a free
+    * byproduct of the spec-correct parser and useful for diagnostics.
     */
   private enum Block:
     case Fenced(
@@ -64,8 +60,7 @@ object MarkdownParser:
   ): IO[MarklitError, ParsedDocument] =
     parseDocument(content, sourceFile)
 
-  /** Normalize line endings: CRLF and lone CR become LF. Preserves line count
-    * so `Location` reporting stays correct.
+  /** Normalize line endings: CRLF and lone CR become LF. Preserves line count so `Location` reporting stays correct.
     */
   private def normalizeLineEndings(s: String): String =
     s.replace("\r\n", "\n").replace('\r', '\n')
@@ -153,8 +148,8 @@ object MarkdownParser:
     P(
       !fenceCloseLine(ch, openLen) ~
         (("\n".!) |
-          (CharsWhile(_ != '\n', 1).! ~ ("\n".! | Pass(""))).map {
-            case (line, nl) => line + nl
+          (CharsWhile(_ != '\n', 1).! ~ ("\n".! | Pass(""))).map { case (line, nl) =>
+            line + nl
           })
     )
 
@@ -213,8 +208,8 @@ object MarkdownParser:
 
   // --- driver -----------------------------------------------------------
 
-  /** Strip up to `n` leading spaces from each line of `s`. Used to match
-    * CommonMark's indent-stripping for indented fence openers.
+  /** Strip up to `n` leading spaces from each line of `s`. Used to match CommonMark's indent-stripping for indented
+    * fence openers.
     */
   private def stripLeadingIndent(s: String, n: Int): String =
     if n <= 0 then s
@@ -254,11 +249,10 @@ object MarkdownParser:
           )
         )
 
-  /** Detects a line that starts with `>` (a blockquote prefix) and then opens a
-    * Scala fence. We reject these explicitly: marklit does not extract code
-    * from inside blockquotes, since output injection would break the quote
-    * structure. Returns Some((lineNumber, columnOfGreaterThan)) for the first
-    * offending line, or None if no offense is found.
+  /** Detects a line that starts with `>` (a blockquote prefix) and then opens a Scala fence. We reject these
+    * explicitly: marklit does not extract code from inside blockquotes, since output injection would break the quote
+    * structure. Returns Some((lineNumber, columnOfGreaterThan)) for the first offending line, or None if no offense is
+    * found.
     */
   private def detectBlockquotedScalaFence(
       normalized: String
@@ -320,5 +314,5 @@ object MarkdownParser:
       }
 
   // Internal sentinel for the blockquoted-fence rejection path.
-  private class BlockquoteFenceException(val line: Int, val col: Int)
-      extends RuntimeException
+  private class BlockquoteFenceException(val line: Int, val col: Int) extends RuntimeException
+end MarkdownParser
