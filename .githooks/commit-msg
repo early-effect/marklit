@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Reject agent attribution in commit messages.
+# Human and CI co-author trailers are allowed.
+set -euo pipefail
+
+msg_file=${1:?commit-msg: message file required}
+
+if hit=$(grep -n -E -i \
+  -e '(co-authored-by|co-developed-by|assisted-by|generated-by|made[- ]with).*(claude|cursor|copilot|chatgpt|openai|anthropic|gemini|devin|codeium|windsurf|aider|codex|tabnine|junie|cursoragent|github-copilot|gpt-[0-9]|grok)' \
+  -e '(generated|written) (with|by) \[?(claude|cursor|copilot|chatgpt|gemini|codex|grok)' \
+  -e 'cursoragent@cursor\.com' \
+  -e 'noreply@anthropic\.com' \
+  -e 'ai-(assisted|generated)' \
+  -e 'ai (assisted|generated)' \
+  -e '🤖.*generated' \
+  -- "$msg_file"); then
+  echo "commit-msg: blocked agent attribution in the commit message:" >&2
+  printf '%s\n' "$hit" >&2
+  echo >&2
+  echo "Remove that line and commit again. Human and CI co-author trailers are fine." >&2
+  exit 1
+fi

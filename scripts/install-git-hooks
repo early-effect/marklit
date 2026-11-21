@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Install repo git hooks (sets core.hooksPath to .githooks for this clone only).
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+git config --local core.hooksPath .githooks
+
+shopt -s nullglob
+for hook in .githooks/*; do
+  if [ -f "$hook" ]; then
+    chmod +x "$hook"
+  fi
+done
+
+echo "Installed git hooks from .githooks (core.hooksPath=.githooks)"
+if [ -f .githooks/pre-commit ]; then
+  echo "pre-commit will run: sbt scalafmtCheckAll"
+fi
+if [ -f .githooks/commit-msg ]; then
+  echo "commit-msg will reject agent attribution in the commit message"
+fi
